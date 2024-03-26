@@ -32,13 +32,9 @@ namespace PC2MQTT
         private Dictionary<string, string> _previousSensorStates = new Dictionary<string, string>();
         private AppSettings _settings;
         private string _settingsFilePath;
-        private string _teamsApiKey;
         private MenuItem _teamsStatusMenuItem;
-        private Action<string> _updateTokenAction;
         private string deviceid;
-        private bool isDarkTheme = false;
-        private bool isTeamsConnected = false;
-        private bool isTeamsSubscribed = false;
+        private bool isDarkTheme = true;
         private bool mqttCommandToTeams = false;
         private bool mqttConnectionAttempting = false;
         private bool mqttConnectionStatusChanged = false;
@@ -200,30 +196,27 @@ namespace PC2MQTT
         }
         private void UpdateCpuUsageDisplay()
         {
-            // Obtain CPU usage
-            CpuUsage = GetCpuUsage();
+            if (cpuCounter == null) return;
+            double cpuUsage = GetCpuUsage(); // Fetch new value
+            Dispatcher.Invoke(() => {
+                CpuUsage = cpuUsage; // Update bound property
+            });
         }
         private void UpdateMemoryUsageDisplay()
         {
-            ComputerInfo computerInfo = new ComputerInfo();
-            ulong totalPhysicalMemory = computerInfo.TotalPhysicalMemory;
-            ulong availableMemory = computerInfo.AvailablePhysicalMemory;
-            ulong usedMemory = totalPhysicalMemory - availableMemory;
+            if (memoryCounter == null) return;
+            double memoryAvailable = memoryCounter.NextValue(); // Get available memory in MB
+            double totalMemory = TotalPhysicalMemory;
+            double memoryUsed = totalMemory - memoryAvailable;
+            double memoryUsagePercentage = (memoryUsed / totalMemory) * 100;
 
-            // Convert bytes to megabytes for better readability and calculation
-            double usedMemoryMB = usedMemory / 1024.0 / 1024.0;
-            double totalMemoryMB = totalPhysicalMemory / 1024.0 / 1024.0;
-
-            // Calculate used memory percentage
-            UsedMemoryPercentage = (usedMemoryMB / totalMemoryMB) * 100; // This gives the percentage
-
-            // Ensure UI update happens on the UI thread
-            Dispatcher.Invoke(() =>
-            {
-                MemoryUsage = usedMemoryMB; // Assuming MemoryUsage is another property bound to a UI element
-                TotalPhysicalMemory = totalMemoryMB; // Update if necessary
+            Dispatcher.Invoke(() => {
+                MemoryUsage = memoryUsagePercentage; // Update bound property with percentage
+                UsedMemoryPercentage = memoryUsagePercentage; // Ensure this is correct as per your data binding
+                                                              // Update any other relevant UI properties here
             });
         }
+
 
 
 
@@ -303,6 +296,13 @@ namespace PC2MQTT
         {
             UpdateCpuUsageDisplay(); // Call this method to update CPU usage
             UpdateMemoryUsageDisplay(); // Call this method to update memory usage
+            _mqttService?.UpdatePCMetrics(new PCMetrics
+            {
+                CpuUsage = this.CpuUsage,
+                MemoryUsage = this.MemoryUsage,
+                TotalMemory = this.TotalPhysicalMemory,
+                // Assume MemoryFree gets calculated or updated somewhere else
+            });
         }
 
 
@@ -483,11 +483,6 @@ namespace PC2MQTT
         {
             Log.Debug("SaveSettings_Click: Save Settings Clicked" + _settings.ToString());
 
-            // uncomment below for testing ** insecure as tokens exposed in logs! **
-            //foreach(var setting in _settings.GetType().GetProperties())
-            //{
-            //    Log.Debug(setting.Name + " " + setting.GetValue(_settings));
-            //}
             await SaveSettingsAsync();
         }
         private async Task SaveSettingsAsync()
@@ -534,15 +529,14 @@ namespace PC2MQTT
             // Save the updated settings to file
             settings.SaveSettingsToFile();
 
-            if (mqttSettingsChanged)
+            if (mqttSettingsChanged || sensorPrefixChanged)
             {
-                // Perform actions if MQTT settings have changed
+                // Perform actions if MQTT settings or sensor prefix have changed
                 Log.Debug("SaveSettingsAsync: MQTT settings have changed. Reconnecting MQTT client...");
                 await _mqttService.UnsubscribeAsync("homeassistant/switch/+/set");
                 await _mqttService.DisconnectAsync();
                 await _mqttService.UpdateSettingsAsync(settings); // Make sure to pass the updated settings
                 await _mqttService.ConnectAsync();
-                
                 await _mqttService.SubscribeAsync("homeassistant/switch/+/set", MqttQualityOfServiceLevel.AtLeastOnce);
             }
         }

@@ -12,12 +12,12 @@ namespace PC2MQTT
     public class PCMetrics
     {
         public double CpuUsage { get; set; } // Represents total CPU usage
-        public double MemoryUsage { get; set; } // Represents total memory usage
-        public List<DiskMetric> Disks { get; set; } = new List<DiskMetric>(); // List to hold information for all disks
-        public double NetworkUsage { get; set; } // Represents total network usage
-        public double Temperature { get; set; } // General temperature, could be CPU or system
-        public double FanSpeed { get; set; } // General fan speed, could be CPU or system
+        public double MemoryUsage { get; set; } // Represents used memory in percentage
+        public double MemoryFree { get; set; } // Represents free memory in MB
+        public double TotalMemory { get; set; } // Represents total memory in MB
+        public List<DiskMetric> Disks { get; set; } = new List<DiskMetric>(); // Information for all disks
     }
+
 
     public class DiskMetric
     {

@@ -6,9 +6,16 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
-    <AssemblyVersion>1.0.0.31</AssemblyVersion>
-    <FileVersion>1.0.0.31</FileVersion>
+    <AssemblyVersion>1.0.0.44</AssemblyVersion>
+    <FileVersion>1.0.0.44</FileVersion>
+    <ApplicationIcon>Square150x150Logo.scale-200.ico</ApplicationIcon>
+    <Title>$(AssemblyName)</Title>
+    <PackageIcon>logo.png</PackageIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="Square150x150Logo.scale-200.ico" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Hardcodet.NotifyIcon.Wpf" Version="1.1.0" />
@@ -24,6 +31,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Update="logo.png">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
     <None Update="Square150x150Logo.scale-200.ico">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>

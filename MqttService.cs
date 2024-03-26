@@ -19,7 +19,7 @@ namespace PC2MQTT
 
         private const int MaxConnectionRetries = 2;
         private const int RetryDelayMilliseconds = 1000;
-        private readonly string _deviceId;
+        private string _deviceId;
         private bool _isAttemptingConnection = false;
         private MqttClient _mqttClient;
         private bool _mqttClientsubscribed = false;
@@ -32,12 +32,18 @@ namespace PC2MQTT
         private System.Timers.Timer mqttPublishTimer;
         private bool mqttPublishTimerset = false;
 
-        #endregion Private Fields
+    #endregion Private Fields
 
-        #region Public Constructors
+    #region Public Constructors
 
-        public MqttService(AppSettings settings, string deviceId, List<string> sensorNames)
+    public MqttService(AppSettings settings, string deviceId, List<string> sensorNames)
         {
+            _pcMetrics = new PCMetrics
+            {
+                CpuUsage = 0,  // Initialize with default values
+                MemoryUsage = 0,
+                // Initialize other fields as necessary
+            };
             _settings = settings;
             _deviceId = deviceId;
             _sensorNames = sensorNames;
@@ -114,6 +120,7 @@ namespace PC2MQTT
                     if (_mqttClient.IsConnected)
                     {
                         ConnectionStatusChanged?.Invoke("MQTT Status: Connected");
+                        PublishConfigurations();
                         break; // Exit the loop if successfully connected
                     }
                 }
@@ -195,20 +202,17 @@ namespace PC2MQTT
 
         public void InitializeMqttPublishTimer()
         {
-            mqttPublishTimer = new System.Timers.Timer(60000); // Set the interval to 60 seconds
-            if (mqttPublishTimerset == false)
+            mqttPublishTimer = new System.Timers.Timer(1000); // Adjust the interval as needed.
+            if (!mqttPublishTimerset)
             {
                 mqttPublishTimer.Elapsed += OnMqttPublishTimerElapsed;
-                mqttPublishTimer.AutoReset = true; // Reset the timer after it elapses
-                mqttPublishTimer.Enabled = true; // Enable the timer
+                mqttPublishTimer.AutoReset = true; // The timer will fire every 60 seconds
+                mqttPublishTimer.Enabled = true; // Start the timer
                 mqttPublishTimerset = true;
-                Log.Debug("InitializeMqttPublishTimer: MQTT Publish Timer Initialized");
-            }
-            else
-            {
-                Log.Debug("InitializeMqttPublishTimer: MQTT Publish Timer already set");
+                Log.Information("MQTT Publish Timer initialized and started.");
             }
         }
+
 
         public async Task PublishAsync(MqttApplicationMessage message)
         {
@@ -223,33 +227,78 @@ namespace PC2MQTT
             }
         }
 
-        public async Task PublishConfigurations(AppSettings settings, bool forcePublish = false)
+        public async Task PublishConfigurations()
         {
-            if (_mqttClient == null)
+            List<(string Topic, string Payload)> configurations = new List<(string Topic, string Payload)>
+    {
+        // Memory Usage
+        (
+            $"homeassistant/sensor/{_deviceId}/memory_usage/config",
+            JsonConvert.SerializeObject(new
             {
-                Log.Debug("MQTT Client Wrapper is not initialized.");
-                return;
-            }
-            // Define common device information for all entities.
-            var deviceInfo = new
+                name = $"{_deviceId}_memory_usage",
+                unique_id = $"{_deviceId}_memory_usage",
+                device = new
+                {
+                    identifiers = new[] { $"{_deviceId}" },
+                    manufacturer = "Custom",
+                    model = "PC Monitor",
+                    name = $"{_deviceId}",
+                    sw_version = "1.0"
+                },
+                icon = "mdi:memory",
+                state_topic = $"homeassistant/sensor/{_deviceId}/memory_usage/state",
+                unit_of_measurement = "%"  // Add unit
+            })
+        ),
+        // CPU Usage
+        (
+            $"homeassistant/sensor/{_deviceId}/cpu_usage/config",
+            JsonConvert.SerializeObject(new
             {
-                ids = new[] { "pc2mqtt_" + _deviceId }, // Unique device identifier
-                mf = "Jimmy White", // Manufacturer name
-                mdl = "PC2Mqtt Device", // Model
-                name = _deviceId, // Device name
-                sw = "v1.0" // Software version
-            };
+                name = $"{_deviceId}_cpu_usage",
+                unique_id = $"{_deviceId}_cpu_usage",
+                device = new
+                {
+                    identifiers = new[] { $"{_deviceId}" },
+                    manufacturer = "Custom",
+                    model = "PC Monitor",
+                    name = $"{_deviceId}",
+                    sw_version = "1.0"
+                },
+                icon = "mdi:cpu-64-bit",
+                state_topic = $"homeassistant/sensor/{_deviceId}/cpu_usage/state",
+                unit_of_measurement = "%"  // Add unit
+            })
+        ),
+        // Add more sensor configurations here, with appropriate units
+    };
 
-            foreach (var binary_sensor in _sensorNames)
+            foreach (var (Topic, Payload) in configurations)
             {
-                string sensorKey = $"{_deviceId}_{binary_sensor}";
-                string sensorName = $"{binary_sensor}".ToLower().Replace(" ", "_");
-                string deviceClass = DetermineDeviceClass(binary_sensor);
+                var message = new MqttApplicationMessageBuilder()
+                    .WithTopic(Topic)
+                    .WithPayload(Payload)
+                    .WithQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce)
+                    .WithRetainFlag(true)
+                    .Build();
 
-                string uniqueId = $"{_deviceId}_{binary_sensor}";
-                string configTopic;
+                await _mqttClient.PublishAsync(message);
             }
+
+            Log.Information("Sensor configurations published successfully.");
         }
+
+
+        public void UpdatePCMetrics(PCMetrics metrics)
+        {
+            // Update metrics
+            _pcMetrics = metrics;
+
+            // Log the update for debugging
+            Log.Information("PC metrics updated.");
+        }
+
 
         public async Task ReconnectAsync()
         {
@@ -325,21 +374,12 @@ namespace PC2MQTT
             OnConnectionStatusChanged(status);
         }
 
-        public void UpdatePCMetrics()
-        {
-            // Example: Update metrics
-            _pcMetrics.CpuUsage = GetCpuUsage();
-            _pcMetrics.MemoryUsage = GetMemoryUsage();
-            _pcMetrics.Disks = GetDiskMetrics(); // This would be a List<DiskMetric>
-                                                 // Update other metrics as necessary
 
-            // Then, trigger an update in your MQTT publish timer if needed or wait for the next
-            // cycle depending on your design
-        }
 
         public async Task UpdateSettingsAsync(AppSettings newSettings)
         {
             _settings = newSettings;
+            _deviceId = _settings.SensorPrefix;
             InitializeClientOptions(); // Reinitialize MQTT client options
 
             if (IsConnected)
@@ -623,28 +663,50 @@ namespace PC2MQTT
 
             return Task.CompletedTask;
         }
+        public async Task PublishPCMetrics()
+        {
+            if (_mqttClient == null || !_mqttClient.IsConnected)
+            {
+                Log.Warning("MQTT client is not connected. Unable to publish PC metrics.");
+                return;
+            }
+
+            try
+            {
+                // CPU Usage
+                var cpuUsageTopic = $"homeassistant/sensor/{_deviceId}/cpu_usage/state";
+                await _mqttClient.PublishAsync(new MqttApplicationMessageBuilder()
+                    .WithTopic(cpuUsageTopic)
+                    .WithPayload(_pcMetrics.CpuUsage.ToString("N2"))  // Format as a string with two decimal places
+                    .WithQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce)
+                    .Build());
+
+                // Memory Usage
+                var memoryUsageTopic = $"homeassistant/sensor/{_deviceId}/memory_usage/state";
+                await _mqttClient.PublishAsync(new MqttApplicationMessageBuilder()
+                    .WithTopic(memoryUsageTopic)
+                    .WithPayload(_pcMetrics.MemoryUsage.ToString("N2"))  // Format as a string with two decimal places
+                    .WithQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce)
+                    .Build());
+
+                Log.Information("PC metrics published successfully.");
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Failed to publish PC metrics: {ex.Message}");
+            }
+        }
+
+
+
+
 
         private void OnMqttPublishTimerElapsed(object sender, ElapsedEventArgs e)
         {
-            if (_mqttClient != null && _mqttClient.IsConnected)
-            {
-                // Construct the topic and payload for the PC metrics
-                string metricsTopic = $"pc2mqtt/{_deviceId}/metrics";
-                string metricsJson = JsonConvert.SerializeObject(_pcMetrics); // Renamed variable
-
-                // Create and publish the MQTT message
-                var mqttMessage = new MqttApplicationMessageBuilder() // Renamed variable
-                    .WithTopic(metricsTopic)
-                    .WithPayload(metricsJson) // Use the renamed variable
-                    .WithQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce)
-                    .Build();
-
-                // Publish the message asynchronously
-                _ = _mqttClient.PublishAsync(mqttMessage); // Use the renamed variable
-
-                Log.Debug("Published PC metrics");
-            }
+            PublishPCMetrics().GetAwaiter().GetResult(); // This ensures the asynchronous PublishPCMetrics method is called properly.
         }
+
+
 
         #endregion Private Methods
     }
