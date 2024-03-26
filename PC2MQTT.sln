@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.9.34622.214
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PC2MQTT", "PC2MQTT.csproj", "{2B62F072-60A2-4F5A-85DD-13BEF57FE6C3}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{2B62F072-60A2-4F5A-85DD-13BEF57FE6C3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2B62F072-60A2-4F5A-85DD-13BEF57FE6C3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2B62F072-60A2-4F5A-85DD-13BEF57FE6C3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2B62F072-60A2-4F5A-85DD-13BEF57FE6C3}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {8F102A02-7054-432A-B482-A0DEFF9927FD}
+	EndGlobalSection
+EndGlobal
