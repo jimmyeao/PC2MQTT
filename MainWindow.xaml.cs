@@ -201,6 +201,8 @@ namespace PC2MQTT
         {
             if (cpuCounter == null) return;
             double cpuUsage = GetCpuUsage(); // Fetch new value
+            PCMetrics metrics = PCMetrics.Instance;
+            metrics.CpuUsage = cpuUsage; // Update the singleton instance
             Dispatcher.Invoke(() => {
                 CpuUsage = cpuUsage; // Update bound property
             });
@@ -315,7 +317,8 @@ namespace PC2MQTT
             double localTotalRam = 0;
             double localFreeRam = 0;
             double localUsedRam = 0;
-
+            // Now update the singleton instance of PCMetrics with the latest values
+            var metrics = PCMetrics.Instance;
             // Update logic (should run in the UI thread because it might update UI elements)
             Dispatcher.Invoke(() =>
             {
@@ -323,20 +326,19 @@ namespace PC2MQTT
                 UpdateMemoryUsageDisplay(); // This updates this.MemoryUsage and RAM values based on latest system info
 
                 // Copy values to local variables after they have been updated
-                localCpuUsage = this.CpuUsage;
-                localMemoryUsage = this.MemoryUsage;
-                localTotalRam = this.totalMemoryGB;
-                localFreeRam = this.memoryAvailableGB;
-                localUsedRam = this.memoryUsedGB;
+                localCpuUsage = metrics.CpuUsage;
+                localMemoryUsage = metrics.MemoryUsage;
+                localTotalRam = metrics.TotalRam;
+                localFreeRam = metrics.FreeRam;
+                localUsedRam = metrics.UsedRam;
             });
 
-            // Now update the singleton instance of PCMetrics with the latest values
-            var metrics = PCMetrics.Instance;
+            
             metrics.CpuUsage = localCpuUsage;
-            metrics.MemoryUsage = localMemoryUsage;
-            metrics.TotalRam = localTotalRam;
-            metrics.FreeRam = localFreeRam;
-            metrics.UsedRam = localUsedRam;
+            //metrics.MemoryUsage = localMemoryUsage;
+            //metrics.TotalRam = localTotalRam;
+            //metrics.FreeRam = localFreeRam;
+            //metrics.UsedRam = localUsedRam;
 
             // Log the updated metrics for debugging
             Log.Debug($"Metrics before MQTT update: CPU={localCpuUsage}, Memory={localMemoryUsage}, TotalRAM={localTotalRam}, FreeRAM={localFreeRam}, UsedRAM={localUsedRam}");

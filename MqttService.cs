@@ -271,9 +271,9 @@ namespace PC2MQTT
         };
             var additionalConfigs = new List<(string Sensor, string Icon, string Unit)>
     {
-        ("total_ram", "mdi:memory", "MB"),
-        ("free_ram", "mdi:memory", "MB"),
-        ("used_ram", "mdi:memory", "MB")
+        ("total_ram", "mdi:memory", "GB"),
+        ("free_ram", "mdi:memory", "GB"),
+        ("used_ram", "mdi:memory", "GB")
     };
 
             foreach (var (Sensor, Icon, Unit) in additionalConfigs)
