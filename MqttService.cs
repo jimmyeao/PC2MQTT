@@ -311,10 +311,7 @@ namespace PC2MQTT
                 await _mqttClient.PublishAsync(message);
             }
 
-            Log.Information("Sensor configurations published successfully.");
 
-
-                Log.Information("Sensor configurations published successfully.");
         }
 
 
@@ -323,7 +320,6 @@ namespace PC2MQTT
             _pcMetrics = metrics;  // Make sure this assignment happens correctly
 
             // Debug logging
-            Log.Information($"PC metrics updated in MQTT Service: CPU Usage = {_pcMetrics.CpuUsage}, Memory Usage = {_pcMetrics.MemoryUsage}, Total RAM = {_pcMetrics.TotalRam}, Free RAM = {_pcMetrics.FreeRam}, Used RAM = {_pcMetrics.UsedRam}");
         }
 
 
@@ -694,11 +690,12 @@ namespace PC2MQTT
         public async Task PublishPCMetrics()
         {
             PCMetrics metrics = PCMetrics.Instance;
-            Log.Information($"Preparing to publish metrics: CPU Usage = {metrics.CpuUsage}, Memory Usage = {metrics.MemoryUsage}, Total RAM = {metrics.TotalRam}, Free RAM = {metrics.FreeRam}, Used RAM = {metrics.UsedRam}");
 
             if (_mqttClient == null || !_mqttClient.IsConnected)
             {
                 Log.Warning("MQTT client is not connected. Unable to publish PC metrics.");
+                // we should try to reccoonect here
+                await ConnectAsync();
                 return;
             }
             
@@ -742,17 +739,12 @@ namespace PC2MQTT
                     .WithPayload(_pcMetrics.UsedRam.ToString("N2")) // Keep two decimal points
                     .WithQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce)
                     .Build());
-                Log.Information("PC metrics published successfully.");
+                
             }
             catch (Exception ex)
             {
                 Log.Error($"Failed to publish PC metrics: {ex.Message}");
             }
-            Log.Information($"Updated metrics: CPU Usage = {_pcMetrics.CpuUsage}, Memory Usage = {_pcMetrics.MemoryUsage}, Total RAM = {_pcMetrics.TotalRam}, Free RAM = {_pcMetrics.FreeRam}, Used RAM = {_pcMetrics.UsedRam}");
-
-            // Repeat for other metrics.
-
-            // Repeat for other metrics.
 
         }
 

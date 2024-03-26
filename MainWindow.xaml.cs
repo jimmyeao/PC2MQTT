@@ -224,7 +224,7 @@ namespace PC2MQTT
             metrics.TotalRam = totalMemoryGB;
             metrics.FreeRam = memoryAvailableGB;
             metrics.UsedRam = memoryUsedGB;
-            Log.Debug($"Memory updated in Singleton: AvailableGB={memoryAvailableGB}, TotalGB={totalMemoryGB}, UsedGB={memoryUsedGB}");
+           
 
             // Update UI.
             Dispatcher.Invoke(() =>
@@ -335,14 +335,7 @@ namespace PC2MQTT
 
             
             metrics.CpuUsage = localCpuUsage;
-            //metrics.MemoryUsage = localMemoryUsage;
-            //metrics.TotalRam = localTotalRam;
-            //metrics.FreeRam = localFreeRam;
-            //metrics.UsedRam = localUsedRam;
-
-            // Log the updated metrics for debugging
-            Log.Debug($"Metrics before MQTT update: CPU={localCpuUsage}, Memory={localMemoryUsage}, TotalRAM={localTotalRam}, FreeRAM={localFreeRam}, UsedRAM={localUsedRam}");
-
+           
             // Pass the updated singleton instance to your MQTT service for publishing
             _mqttService?.UpdatePCMetrics(metrics);
         }
