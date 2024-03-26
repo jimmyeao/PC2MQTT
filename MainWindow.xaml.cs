@@ -102,6 +102,9 @@ namespace PC2MQTT
                 }
             }
         }
+        private double memoryAvailableGB;
+        private double totalMemoryGB;
+        private double memoryUsedGB;
 
         public MainWindow()
         {
@@ -204,16 +207,28 @@ namespace PC2MQTT
         }
         private void UpdateMemoryUsageDisplay()
         {
-            if (memoryCounter == null) return;
-            double memoryAvailable = memoryCounter.NextValue(); // Get available memory in MB
-            double totalMemory = TotalPhysicalMemory;
-            double memoryUsed = totalMemory - memoryAvailable;
-            double memoryUsagePercentage = (memoryUsed / totalMemory) * 100;
+            // Initialization and safety checks.
+            if (memoryCounter == null || TotalPhysicalMemory <= 0) return;
+            PCMetrics metrics = PCMetrics.Instance;
+            // Perform calculations.
+            double memoryAvailableGB = memoryCounter.NextValue() / 1024; // Convert from MB to GB
+            double totalMemoryGB = TotalPhysicalMemory; // Already in GB from MainPage_Loaded
+            double memoryUsedGB = totalMemoryGB - memoryAvailableGB;
+            double memoryUsagePercentage = (memoryUsedGB / totalMemoryGB) * 100;
 
-            Dispatcher.Invoke(() => {
-                MemoryUsage = memoryUsagePercentage; // Update bound property with percentage
-                UsedMemoryPercentage = memoryUsagePercentage; // Ensure this is correct as per your data binding
-                                                              // Update any other relevant UI properties here
+            // Update the singleton instance.
+            
+            metrics.MemoryUsage = memoryUsagePercentage;
+            metrics.TotalRam = totalMemoryGB;
+            metrics.FreeRam = memoryAvailableGB;
+            metrics.UsedRam = memoryUsedGB;
+            Log.Debug($"Memory updated in Singleton: AvailableGB={memoryAvailableGB}, TotalGB={totalMemoryGB}, UsedGB={memoryUsedGB}");
+
+            // Update UI.
+            Dispatcher.Invoke(() =>
+            {
+                MemoryUsage = memoryUsagePercentage; // Update UI element for memory usage
+               UsedMemoryPercentage = memoryUsagePercentage;                                   // Update other UI elements if necessary.
             });
         }
 
@@ -257,7 +272,7 @@ namespace PC2MQTT
 
                 // Initialize and prime memory counter.
                 memoryCounter = new PerformanceCounter("Memory", "Available MBytes", true);
-                var unusedMem = memoryCounter.NextValue(); // Prime the memory counter.
+                var unusedMem = memoryCounter.NextValue(); // Prime the memory counter. 
             });
         }
         private void OnPowerModeChanged(object sender, PowerModeChangedEventArgs e)
@@ -294,16 +309,42 @@ namespace PC2MQTT
         }
         private void OnTimedEvent(Object source, System.Timers.ElapsedEventArgs e)
         {
-            UpdateCpuUsageDisplay(); // Call this method to update CPU usage
-            UpdateMemoryUsageDisplay(); // Call this method to update memory usage
-            _mqttService?.UpdatePCMetrics(new PCMetrics
+            // Initialize local variables to default values
+            double localCpuUsage = 0;
+            double localMemoryUsage = 0;
+            double localTotalRam = 0;
+            double localFreeRam = 0;
+            double localUsedRam = 0;
+
+            // Update logic (should run in the UI thread because it might update UI elements)
+            Dispatcher.Invoke(() =>
             {
-                CpuUsage = this.CpuUsage,
-                MemoryUsage = this.MemoryUsage,
-                TotalMemory = this.TotalPhysicalMemory,
-                // Assume MemoryFree gets calculated or updated somewhere else
+                UpdateCpuUsageDisplay();  // This updates this.CpuUsage based on latest system info
+                UpdateMemoryUsageDisplay(); // This updates this.MemoryUsage and RAM values based on latest system info
+
+                // Copy values to local variables after they have been updated
+                localCpuUsage = this.CpuUsage;
+                localMemoryUsage = this.MemoryUsage;
+                localTotalRam = this.totalMemoryGB;
+                localFreeRam = this.memoryAvailableGB;
+                localUsedRam = this.memoryUsedGB;
             });
+
+            // Now update the singleton instance of PCMetrics with the latest values
+            var metrics = PCMetrics.Instance;
+            metrics.CpuUsage = localCpuUsage;
+            metrics.MemoryUsage = localMemoryUsage;
+            metrics.TotalRam = localTotalRam;
+            metrics.FreeRam = localFreeRam;
+            metrics.UsedRam = localUsedRam;
+
+            // Log the updated metrics for debugging
+            Log.Debug($"Metrics before MQTT update: CPU={localCpuUsage}, Memory={localMemoryUsage}, TotalRAM={localTotalRam}, FreeRAM={localFreeRam}, UsedRAM={localUsedRam}");
+
+            // Pass the updated singleton instance to your MQTT service for publishing
+            _mqttService?.UpdatePCMetrics(metrics);
         }
+
 
 
         private void ApplyTheme(string theme)
@@ -562,7 +603,8 @@ namespace PC2MQTT
         {
             //LoadSettings();
             ComputerInfo computerInfo = new ComputerInfo();
-            TotalPhysicalMemory = computerInfo.TotalPhysicalMemory / 1024 / 1024; // Convert from bytes to megabytes
+            TotalPhysicalMemory = computerInfo.TotalPhysicalMemory / (1024.0 * 1024 * 1024); // Convert from bytes to gigabytes
+
             await Task.Run(() => InitializePerformanceCounters()); // Move heavy lifting off the UI thread.
             InitializeTimer();
             RunAtWindowsBootCheckBox.IsChecked = _settings.RunAtWindowsBoot;

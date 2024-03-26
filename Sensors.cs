@@ -11,12 +11,38 @@ namespace PC2MQTT
 
     public class PCMetrics
     {
-        public double CpuUsage { get; set; } // Represents total CPU usage
-        public double MemoryUsage { get; set; } // Represents used memory in percentage
-        public double MemoryFree { get; set; } // Represents free memory in MB
-        public double TotalMemory { get; set; } // Represents total memory in MB
-        public List<DiskMetric> Disks { get; set; } = new List<DiskMetric>(); // Information for all disks
+        public double CpuUsage { get; set; }
+        public double MemoryUsage { get; set; }
+        public double TotalRam { get; set; }
+        public double FreeRam { get; set; }
+        public double UsedRam { get; set; }
+
+        // Singleton instance
+        private static PCMetrics _instance;
+
+        // Lock object for thread safety
+        private static readonly object _lock = new object();
+
+        // Private constructor to prevent external instantiation
+        private PCMetrics() { }
+
+        // Public method to get the singleton instance
+        public static PCMetrics Instance
+        {
+            get
+            {
+                lock (_lock)
+                {
+                    if (_instance == null)
+                    {
+                        _instance = new PCMetrics();
+                    }
+                    return _instance;
+                }
+            }
+        }
     }
+
 
 
     public class DiskMetric

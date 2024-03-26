@@ -38,12 +38,8 @@ namespace PC2MQTT
 
     public MqttService(AppSettings settings, string deviceId, List<string> sensorNames)
         {
-            _pcMetrics = new PCMetrics
-            {
-                CpuUsage = 0,  // Initialize with default values
-                MemoryUsage = 0,
-                // Initialize other fields as necessary
-            };
+            _pcMetrics = PCMetrics.Instance;
+
             _settings = settings;
             _deviceId = deviceId;
             _sensorNames = sensorNames;
@@ -229,50 +225,79 @@ namespace PC2MQTT
 
         public async Task PublishConfigurations()
         {
-            List<(string Topic, string Payload)> configurations = new List<(string Topic, string Payload)>
+                List<(string Topic, string Payload)> configurations = new List<(string Topic, string Payload)>
+        {
+            // Memory Usage
+            (
+                $"homeassistant/sensor/{_deviceId}/memory_usage/config",
+                JsonConvert.SerializeObject(new
+                {
+                    name = $"{_deviceId}_memory_usage",
+                    unique_id = $"{_deviceId}_memory_usage",
+                    device = new
+                    {
+                        identifiers = new[] { $"{_deviceId}" },
+                        manufacturer = "Custom",
+                        model = "PC Monitor",
+                        name = $"{_deviceId}",
+                        sw_version = "1.0"
+                    },
+                    icon = "mdi:memory",
+                    state_topic = $"homeassistant/sensor/{_deviceId}/memory_usage/state",
+                    unit_of_measurement = "%"  // Add unit
+                })
+            ),
+            // CPU Usage
+            (
+                $"homeassistant/sensor/{_deviceId}/cpu_usage/config",
+                JsonConvert.SerializeObject(new
+                {
+                    name = $"{_deviceId}_cpu_usage",
+                    unique_id = $"{_deviceId}_cpu_usage",
+                    device = new
+                    {
+                        identifiers = new[] { $"{_deviceId}" },
+                        manufacturer = "Custom",
+                        model = "PC Monitor",
+                        name = $"{_deviceId}",
+                        sw_version = "1.0"
+                    },
+                    icon = "mdi:cpu-64-bit",
+                    state_topic = $"homeassistant/sensor/{_deviceId}/cpu_usage/state",
+                    unit_of_measurement = "%"  // Add unit
+                })
+            ),
+            // Add more sensor configurations here, with appropriate units
+        };
+            var additionalConfigs = new List<(string Sensor, string Icon, string Unit)>
     {
-        // Memory Usage
-        (
-            $"homeassistant/sensor/{_deviceId}/memory_usage/config",
-            JsonConvert.SerializeObject(new
-            {
-                name = $"{_deviceId}_memory_usage",
-                unique_id = $"{_deviceId}_memory_usage",
-                device = new
-                {
-                    identifiers = new[] { $"{_deviceId}" },
-                    manufacturer = "Custom",
-                    model = "PC Monitor",
-                    name = $"{_deviceId}",
-                    sw_version = "1.0"
-                },
-                icon = "mdi:memory",
-                state_topic = $"homeassistant/sensor/{_deviceId}/memory_usage/state",
-                unit_of_measurement = "%"  // Add unit
-            })
-        ),
-        // CPU Usage
-        (
-            $"homeassistant/sensor/{_deviceId}/cpu_usage/config",
-            JsonConvert.SerializeObject(new
-            {
-                name = $"{_deviceId}_cpu_usage",
-                unique_id = $"{_deviceId}_cpu_usage",
-                device = new
-                {
-                    identifiers = new[] { $"{_deviceId}" },
-                    manufacturer = "Custom",
-                    model = "PC Monitor",
-                    name = $"{_deviceId}",
-                    sw_version = "1.0"
-                },
-                icon = "mdi:cpu-64-bit",
-                state_topic = $"homeassistant/sensor/{_deviceId}/cpu_usage/state",
-                unit_of_measurement = "%"  // Add unit
-            })
-        ),
-        // Add more sensor configurations here, with appropriate units
+        ("total_ram", "mdi:memory", "MB"),
+        ("free_ram", "mdi:memory", "MB"),
+        ("used_ram", "mdi:memory", "MB")
     };
+
+            foreach (var (Sensor, Icon, Unit) in additionalConfigs)
+            {
+                configurations.Add((
+                    $"homeassistant/sensor/{_deviceId}/{Sensor}/config",
+                    JsonConvert.SerializeObject(new
+                    {
+                        name = $"{_deviceId}_{Sensor}",
+                        unique_id = $"{_deviceId}_{Sensor}",
+                        device = new
+                        {
+                            identifiers = new[] { $"{_deviceId}" },
+                            manufacturer = "Custom",
+                            model = "PC Monitor",
+                            name = $"{_deviceId}",
+                            sw_version = "1.0"
+                        },
+                        icon = Icon,
+                        state_topic = $"homeassistant/sensor/{_deviceId}/{Sensor}/state",
+                        unit_of_measurement = Unit
+                    })
+                ));
+            }
 
             foreach (var (Topic, Payload) in configurations)
             {
@@ -287,17 +312,20 @@ namespace PC2MQTT
             }
 
             Log.Information("Sensor configurations published successfully.");
+
+
+                Log.Information("Sensor configurations published successfully.");
         }
 
 
         public void UpdatePCMetrics(PCMetrics metrics)
         {
-            // Update metrics
-            _pcMetrics = metrics;
+            _pcMetrics = metrics;  // Make sure this assignment happens correctly
 
-            // Log the update for debugging
-            Log.Information("PC metrics updated.");
+            // Debug logging
+            Log.Information($"PC metrics updated in MQTT Service: CPU Usage = {_pcMetrics.CpuUsage}, Memory Usage = {_pcMetrics.MemoryUsage}, Total RAM = {_pcMetrics.TotalRam}, Free RAM = {_pcMetrics.FreeRam}, Used RAM = {_pcMetrics.UsedRam}");
         }
+
 
 
         public async Task ReconnectAsync()
@@ -665,12 +693,15 @@ namespace PC2MQTT
         }
         public async Task PublishPCMetrics()
         {
+            PCMetrics metrics = PCMetrics.Instance;
+            Log.Information($"Preparing to publish metrics: CPU Usage = {metrics.CpuUsage}, Memory Usage = {metrics.MemoryUsage}, Total RAM = {metrics.TotalRam}, Free RAM = {metrics.FreeRam}, Used RAM = {metrics.UsedRam}");
+
             if (_mqttClient == null || !_mqttClient.IsConnected)
             {
                 Log.Warning("MQTT client is not connected. Unable to publish PC metrics.");
                 return;
             }
-
+            
             try
             {
                 // CPU Usage
@@ -688,13 +719,41 @@ namespace PC2MQTT
                     .WithPayload(_pcMetrics.MemoryUsage.ToString("N2"))  // Format as a string with two decimal places
                     .WithQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce)
                     .Build());
+                // Total RAM
+                var totalRamTopic = $"homeassistant/sensor/{_deviceId}/total_ram/state";
+                await _mqttClient.PublishAsync(new MqttApplicationMessageBuilder()
+                    .WithTopic(totalRamTopic)
+                    .WithPayload(_pcMetrics.TotalRam.ToString("N2"))  // Confirm this is not zero and correctly calculated
+                    .WithQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce)
+                    .Build());
 
+                // Free RAM
+                var freeRamTopic = $"homeassistant/sensor/{_deviceId}/free_ram/state";
+                await _mqttClient.PublishAsync(new MqttApplicationMessageBuilder()
+                    .WithTopic(freeRamTopic)
+                    .WithPayload(_pcMetrics.FreeRam.ToString("N2")) // Keep two decimal points
+                    .WithQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce)
+                    .Build());
+
+                // Used RAM
+                var usedRamTopic = $"homeassistant/sensor/{_deviceId}/used_ram/state";
+                await _mqttClient.PublishAsync(new MqttApplicationMessageBuilder()
+                    .WithTopic(usedRamTopic)
+                    .WithPayload(_pcMetrics.UsedRam.ToString("N2")) // Keep two decimal points
+                    .WithQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce)
+                    .Build());
                 Log.Information("PC metrics published successfully.");
             }
             catch (Exception ex)
             {
                 Log.Error($"Failed to publish PC metrics: {ex.Message}");
             }
+            Log.Information($"Updated metrics: CPU Usage = {_pcMetrics.CpuUsage}, Memory Usage = {_pcMetrics.MemoryUsage}, Total RAM = {_pcMetrics.TotalRam}, Free RAM = {_pcMetrics.FreeRam}, Used RAM = {_pcMetrics.UsedRam}");
+
+            // Repeat for other metrics.
+
+            // Repeat for other metrics.
+
         }
 
 
