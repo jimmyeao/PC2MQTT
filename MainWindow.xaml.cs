@@ -189,13 +189,19 @@ namespace PC2MQTT
         }
         private void MqttManager_ConnectionAttempting(string status)
         {
-            Dispatcher.Invoke(() =>
+            try
             {
-                MQTTConnectionStatus.Text = status;
-                _mqttStatusMenuItem.Header = status; // Update the system tray menu item as well
-                                                     // No need to update other status menu items as
-                                                     // this is specifically for MQTT connection
-            });
+                Dispatcher.Invoke(() =>
+                {
+                    MQTTConnectionStatus.Text = status;
+                    _mqttStatusMenuItem.Header = status; // Update the system tray menu item as well
+                });
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Error updating connection status: {ex.Message}");
+            }
+         
         }
         private void UpdateCpuUsageDisplay()
         {
@@ -304,11 +310,28 @@ namespace PC2MQTT
         }
         private void AboutMenuItem_Click(object sender, RoutedEventArgs e)
         {
-            string currentTheme = _settings.Theme; // Assuming this is where the theme is stored
-            var aboutWindow = new AboutWindow(deviceid, MyNotifyIcon);
+            // Retrieve the current theme from settings
+            string currentTheme = _settings.Theme;
+
+            // Get the device ID from the MqttService instance
+            if (string.IsNullOrEmpty(_settings.SensorPrefix))
+            {
+                deviceid = System.Environment.MachineName;
+            }
+            else
+            {
+                deviceid = _settings.SensorPrefix;
+            }
+
+            // Get the list of sensors and switches from the MqttService instance
+            var sensorsAndSwitches = new List<string>(_mqttService.GetSensorAndSwitchNames());
+
+            // Create and display the AboutWindow
+            AboutWindow aboutWindow = new AboutWindow(deviceid, MyNotifyIcon, sensorsAndSwitches);
             aboutWindow.Owner = this;
             aboutWindow.ShowDialog();
         }
+
         private void OnTimedEvent(Object source, System.Timers.ElapsedEventArgs e)
         {
             // Initialize local variables to default values

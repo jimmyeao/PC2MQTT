@@ -44,7 +44,15 @@ namespace PC2MQTT
 
             _settings = settings;
             _deviceId = deviceId;
-            _sensorNames = sensorNames;
+            _sensorNames = new List<string>
+            {
+                "cpu_usage",
+                "memory_usage",
+                // Add all other sensor names here
+                "total_ram",
+                "free_ram",
+                "used_ram"
+            };
             _previousSensorStates = new Dictionary<string, string>();
 
             InitializeClient();
@@ -733,6 +741,28 @@ namespace PC2MQTT
                 // Directly enter standby without confirmation, if possible
                 Process.Start("shutdown", "/h");
             }
+        }
+        public List<string> GetSensorAndSwitchNames()
+        {
+            // Assuming you have a method or way to get all sensor and switch names
+            // For example, combining predefined names with dynamic ones from settings
+            List<string> names = new List<string>();
+
+            foreach(var sensor in _sensorNames)  // Assuming _sensorNames contains names of your sensors
+        {
+                names.Add($"sensor.{_deviceId}_{sensor}");  // Adjust the format as needed
+            }
+
+            // Add switch names
+            // If you have a list or pattern for switches, add them here
+            names.Add($"switch.{_deviceId}_shutdown");
+            names.Add($"switch.{_deviceId}_reboot");
+            names.Add($"switch.{_deviceId}_standby");
+            names.Add($"switch.{_deviceId}_hibernate");
+
+            // You can extend this list based on how your sensors and switches are named or stored
+
+            return names;
         }
 
         private void PerformReboot()

@@ -47,7 +47,7 @@
             </ListBox.ItemTemplate>
 
         </ListBox>
-        <Button Content="Close" Width="100" materialDesign:ButtonAssist.CornerRadius="25" Click="CloseButton_Click" Style="{DynamicResource MaterialDesignRaisedButton}"/>
+        <Button Content="Close" Width="100" Click="CloseButton_Click" Style="{DynamicResource MaterialDesignRaisedButton}"/>
     </StackPanel>
 
     </Grid>

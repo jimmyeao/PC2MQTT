@@ -15,21 +15,19 @@ namespace PC2MQTT
 
         private TaskbarIcon _notifyIcon;
         private MqttService _mqttService;
+        private List<string> _entityNames;
         #endregion Private Fields
 
         #region Public Constructors
 
-        public AboutWindow(string deviceId, TaskbarIcon notifyIcon)
+        public AboutWindow(string deviceId, TaskbarIcon notifyIcon, List<string> entityNames)
         {
             InitializeComponent();
-
-            DataContext = this; // Set DataContext to access CopyCommand
-
+            DataContext = this;
             _notifyIcon = notifyIcon;
+            _entityNames = entityNames;
+            EntitiesListBox.ItemsSource = _entityNames;
             SetVersionInfo();
-            //var entityNames = MqttService.GetEntityNames(deviceId);
-
-            //EntitiesListBox.ItemsSource = entityNames;
         }
 
         #endregion Public Constructors
