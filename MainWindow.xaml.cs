@@ -542,6 +542,16 @@ namespace PC2MQTT
 
             await SaveSettingsAsync();
         }
+        private void ToggleThemeButton_Click(object sender, RoutedEventArgs e)
+        {
+            // Toggle the theme
+            isDarkTheme = !isDarkTheme;
+            _settings.Theme = isDarkTheme ? "Dark" : "Light";
+            ApplyTheme(_settings.Theme);
+
+            // Save settings after changing the theme
+            _ = SaveSettingsAsync();
+        }
         private async Task SaveSettingsAsync()
         {
             // Get the current settings from the singleton instance

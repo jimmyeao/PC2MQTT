@@ -333,6 +333,11 @@ namespace PC2MQTT
 
         public async Task SubscribeAsync(string topic, MqttQualityOfServiceLevel qos)
         {
+            if (!_mqttClient.IsConnected)
+            {
+                Log.Warning("Cannot subscribe to topics because the MQTT client is not connected.");
+                return; // Exit early if not connected
+            }
             // Check if already subscribed
             if (_subscribedTopics.Contains(topic))
             {
