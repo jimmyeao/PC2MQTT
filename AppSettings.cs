@@ -75,6 +75,7 @@ namespace PC2MQTT
                 }
             }
         }
+        public static string ExecutablePath => System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName;
 
         // Properties
         public string EncryptedMqttPassword
@@ -108,7 +109,7 @@ namespace PC2MQTT
         public bool RunAtWindowsBoot { get; set; }
         public bool RunMinimized { get; set; }
         public string SensorPrefix { get; set; }
-        public static string ExecutablePath { get; }
+        
         public string Theme { get; set; }
         public bool UseTLS { get; set; }
         public bool UseWebsockets { get; set; }
