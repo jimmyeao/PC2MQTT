@@ -444,15 +444,19 @@ namespace PC2MQTT
             {
                 case "shutdown":
                     // Call your shutdown method here
+                    PerformShutdown();
                     break;
                 case "reboot":
                     // Call your reboot method here
+                    PerformReboot();
                     break;
                 case "standby":
                     // Call your standby method here
+                    PerformStandby();
                     break;
                 case "hibernate":
                     // Call your hibernate method here
+                    PerformHibernate();
                     break;
                 // Add more cases as needed
                 default:
@@ -565,8 +569,8 @@ namespace PC2MQTT
             var topicParts = topic.Split('/');
             if (topicParts.Length > 2 && topicParts[0] == "homeassistant" && topicParts[1] == "switch")
             {
-                string command = topicParts[2]; // For example: "shutdown"
-                if (topicParts.Length == 4 && topicParts[3] == "set") // To ensure it is a command
+                string command = topicParts[3]; // For example: "shutdown"
+                if (topicParts[4] == "set") // To ensure it is a command
                 {
                     HandleControlCommand(payload, command); // Handle the command
                 }
