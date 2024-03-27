@@ -108,6 +108,11 @@ namespace PC2MQTT
             if (_mqttClient.IsConnected || _isAttemptingConnection)
             {
                 Log.Information("MQTT client is already connected or connection attempt is in progress.");
+                await PublishConfigurations();
+                await SubscribeToControlCommands();
+                _mqttClient.ApplicationMessageReceivedAsync -= OnMessageReceivedAsync;
+                _mqttClient.ApplicationMessageReceivedAsync += OnMessageReceivedAsync;
+
                 return;
             }
 
@@ -127,6 +132,9 @@ namespace PC2MQTT
                     {
                         ConnectionStatusChanged?.Invoke("MQTT Status: Connected");
                         PublishConfigurations();
+                        await SubscribeToControlCommands();
+                        _mqttClient.ApplicationMessageReceivedAsync -= OnMessageReceivedAsync;
+                        _mqttClient.ApplicationMessageReceivedAsync += OnMessageReceivedAsync;
                         break; // Exit the loop if successfully connected
                     }
                 }
@@ -222,9 +230,17 @@ namespace PC2MQTT
 
         public async Task PublishAsync(MqttApplicationMessage message)
         {
+            // Check if the client is connected before attempting to publish
+            if (!_mqttClient.IsConnected)
+            {
+                Log.Warning("Cannot publish message because the MQTT client is not connected.");
+                // Consider handling reconnection here or notifying the rest of your application
+                return;
+            }
+
             try
             {
-                await _mqttClient.PublishAsync(message, CancellationToken.None); // Note: Add using System.Threading; if CancellationToken is undefined
+                await _mqttClient.PublishAsync(message, CancellationToken.None);
                 Log.Information("Publish successful." + message.Topic);
             }
             catch (Exception ex)
