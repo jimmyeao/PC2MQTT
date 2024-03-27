@@ -460,8 +460,6 @@ namespace PC2MQTT
             exitMenuItem.Click += ExitMenuItem_Click;
 
             contextMenu.Items.Add(showHideMenuItem);
-            contextMenu.Items.Add(_mqttStatusMenuItem);
-            contextMenu.Items.Add(_teamsStatusMenuItem);
             contextMenu.Items.Add(_logMenuItem);
             contextMenu.Items.Add(_aboutMenuItem);
             contextMenu.Items.Add(new Separator()); // Separator before exit

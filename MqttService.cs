@@ -10,6 +10,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Timers;
+using System.Linq.Expressions;
 
 namespace PC2MQTT
 {
@@ -223,95 +224,94 @@ namespace PC2MQTT
             }
         }
 
-        public async Task PublishConfigurations()
+        public async Task PublishConfigurations(bool forcePublish = false)
         {
-                List<(string Topic, string Payload)> configurations = new List<(string Topic, string Payload)>
-        {
-            // Memory Usage
-            (
-                $"homeassistant/sensor/{_deviceId}/memory_usage/config",
-                JsonConvert.SerializeObject(new
-                {
-                    name = $"{_deviceId}_memory_usage",
-                    unique_id = $"{_deviceId}_memory_usage",
-                    device = new
-                    {
-                        identifiers = new[] { $"{_deviceId}" },
-                        manufacturer = "Custom",
-                        model = "PC Monitor",
-                        name = $"{_deviceId}",
-                        sw_version = "1.0"
-                    },
-                    icon = "mdi:memory",
-                    state_topic = $"homeassistant/sensor/{_deviceId}/memory_usage/state",
-                    unit_of_measurement = "%"  // Add unit
-                })
-            ),
-            // CPU Usage
-            (
-                $"homeassistant/sensor/{_deviceId}/cpu_usage/config",
-                JsonConvert.SerializeObject(new
-                {
-                    name = $"{_deviceId}_cpu_usage",
-                    unique_id = $"{_deviceId}_cpu_usage",
-                    device = new
-                    {
-                        identifiers = new[] { $"{_deviceId}" },
-                        manufacturer = "Custom",
-                        model = "PC Monitor",
-                        name = $"{_deviceId}",
-                        sw_version = "1.0"
-                    },
-                    icon = "mdi:cpu-64-bit",
-                    state_topic = $"homeassistant/sensor/{_deviceId}/cpu_usage/state",
-                    unit_of_measurement = "%"  // Add unit
-                })
-            ),
-            // Add more sensor configurations here, with appropriate units
-        };
-            var additionalConfigs = new List<(string Sensor, string Icon, string Unit)>
+            // Device common information
+            var deviceInfo = new
+            {
+                identifiers = new[] { _deviceId },
+                manufacturer = "Custom",
+                model = "PC Monitor",
+                name = _deviceId,
+                sw_version = "1.0"
+            };
+
+            // List of configurations for sensors and switches
+            List<(string Topic, string Payload)> configurations = new List<(string Topic, string Payload)>();
+
+            // Include additional sensor and switch names here, similar to how you had in GetEntityNames
+            List<string> entityNames = new List<string>
     {
-        ("total_ram", "mdi:memory", "GB"),
-        ("free_ram", "mdi:memory", "GB"),
-        ("used_ram", "mdi:memory", "GB")
+        "cpu_usage", "memory_usage", "total_ram", "free_ram", "used_ram",
+        "shutdown", "reboot", "standby", "hibernate" // Add control switches
     };
 
-            foreach (var (Sensor, Icon, Unit) in additionalConfigs)
+            // Populate configurations
+            foreach (var entityName in entityNames)
             {
-                configurations.Add((
-                    $"homeassistant/sensor/{_deviceId}/{Sensor}/config",
-                    JsonConvert.SerializeObject(new
+                string topic;
+                object payload;
+
+                if (entityName.Contains("shutdown") || entityName.Contains("reboot") || entityName.Contains("standby") || entityName.Contains("hibernate"))
+                {
+                    // Switches (for shutdown, reboot, standby, hibernate)
+                    topic = $"homeassistant/switch/{_deviceId}/{entityName}/config";
+                    payload = new
                     {
-                        name = $"{_deviceId}_{Sensor}",
-                        unique_id = $"{_deviceId}_{Sensor}",
-                        device = new
-                        {
-                            identifiers = new[] { $"{_deviceId}" },
-                            manufacturer = "Custom",
-                            model = "PC Monitor",
-                            name = $"{_deviceId}",
-                            sw_version = "1.0"
-                        },
-                        icon = Icon,
-                        state_topic = $"homeassistant/sensor/{_deviceId}/{Sensor}/state",
-                        unit_of_measurement = Unit
-                    })
-                ));
+                        name = $"{_deviceId}_{entityName}",
+                        unique_id = $"{_deviceId}_{entityName}",
+                        device = deviceInfo,
+                        command_topic = $"homeassistant/switch/{_deviceId}/{entityName}/set",
+                        state_topic = $"homeassistant/switch/{_deviceId}/{entityName}/state",
+                        payload_on = "ON",
+                        payload_off = "OFF"
+                    };
+                }
+                else
+                {
+                    // Sensors (for CPU usage, memory usage, etc.)
+                    topic = $"homeassistant/sensor/{_deviceId}/{entityName}/config";
+                    payload = new
+                    {
+                        name = $"{_deviceId}_{entityName}",
+                        unique_id = $"{_deviceId}_{entityName}",
+                        device = deviceInfo,
+                        state_topic = $"homeassistant/sensor/{_deviceId}/{entityName}/state",
+                        unit_of_measurement = entityName.Contains("usage") ? "%" : "GB",
+                        icon = entityName.Contains("cpu") ? "mdi:cpu-64-bit" : "mdi:memory"
+                    };
+                }
+
+                configurations.Add((topic, JsonConvert.SerializeObject(payload)));
             }
 
+            // Publish configurations and initial state
             foreach (var (Topic, Payload) in configurations)
             {
-                var message = new MqttApplicationMessageBuilder()
+                // Publish the configuration
+                var configMessage = new MqttApplicationMessageBuilder()
                     .WithTopic(Topic)
                     .WithPayload(Payload)
                     .WithQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce)
                     .WithRetainFlag(true)
                     .Build();
 
-                await _mqttClient.PublishAsync(message);
+                await PublishAsync(configMessage);
+
+                // If it's a switch, publish its initial state as "OFF"
+                if (Topic.Contains("/switch/"))
+                {
+                    string stateTopic = Topic.Replace("/config", "/state");
+                    var stateMessage = new MqttApplicationMessageBuilder()
+                        .WithTopic(stateTopic)
+                        .WithPayload("OFF") // Ensuring switches are initialized as "OFF"
+                        .WithQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce)
+                        .WithRetainFlag(true)
+                        .Build();
+
+                    await PublishAsync(stateMessage);
+                }
             }
-
-
         }
 
 
@@ -320,13 +320,6 @@ namespace PC2MQTT
             _pcMetrics = metrics;  // Make sure this assignment happens correctly
 
             // Debug logging
-        }
-
-
-
-        public async Task ReconnectAsync()
-        {
-            // Consolidated reconnection logic
         }
 
         public async Task SubscribeAsync(string topic, MqttQualityOfServiceLevel qos)
@@ -341,7 +334,8 @@ namespace PC2MQTT
             var subscribeOptions = new MqttClientSubscribeOptionsBuilder()
                 .WithTopicFilter(f => f.WithTopic(topic).WithQualityOfServiceLevel(qos))
                 .Build();
-
+            
+         
             try
             {
                 await _mqttClient.SubscribeAsync(subscribeOptions);
@@ -349,6 +343,19 @@ namespace PC2MQTT
                 Log.Information("Subscribed to " + topic);
             }
             catch (Exception ex)
+            {
+                Log.Information($"Error during MQTT subscribe: {ex.Message}");
+            }
+            var controlCommands = new List<string> { "shutdown", "reboot", "standby", "hibernate" };
+            try
+            {
+                foreach (var command in controlCommands)
+                {
+                    topic = $"homeassistant/switch/{_deviceId}/{command}/set";
+                    await SubscribeAsync(topic, MqttQualityOfServiceLevel.AtLeastOnce);
+                    Log.Information("Subscribed to " + topic);
+                }
+            } catch (Exception ex)
             {
                 Log.Information($"Error during MQTT subscribe: {ex.Message}");
             }
@@ -426,148 +433,33 @@ namespace PC2MQTT
 
         #region Private Methods
 
-        private string DetermineDeviceClass(string sensor)
+
+        public void HandleControlCommand(string payload, string action)
         {
-            switch (sensor)
+            // Log for debugging
+            Log.Information($"Received control command: {action}, payload: {payload}");
+
+            // Handle different actions
+            switch (action.ToLower())
             {
-                case "IsMuted":
-                case "IsVideoOn":
-                case "IsHandRaised":
-                case "IsBackgroundBlurred":
-                    return "switch"; // These are ON/OFF switches
-                case "IsInMeeting":
-                case "HasUnreadMessages":
-                case "IsRecordingOn":
-                case "IsSharing":
-                case "teamsRunning":
-                    return "binary_sensor"; // These are true/false sensors
+                case "shutdown":
+                    // Call your shutdown method here
+                    break;
+                case "reboot":
+                    // Call your reboot method here
+                    break;
+                case "standby":
+                    // Call your standby method here
+                    break;
+                case "hibernate":
+                    // Call your hibernate method here
+                    break;
+                // Add more cases as needed
                 default:
-                    return "unknown"; // Or a default device class if appropriate
+                    Log.Warning($"Unknown control command: {action}");
+                    break;
             }
         }
-
-        //private string DetermineIcon(string sensor, MeetingState state)
-        //{
-        //    return sensor switch
-        //    {
-        //        // If the sensor is "IsMuted", return "mdi:microphone-off" if state.IsMuted is true,
-        //        // otherwise return "mdi:microphone"
-        //        "IsMuted" => state.IsMuted ? "mdi:microphone-off" : "mdi:microphone",
-
-        // // If the sensor is "IsVideoOn", return "mdi:camera" if state.IsVideoOn is true, //
-        // otherwise return "mdi:camera-off" "IsVideoOn" => state.IsVideoOn ? "mdi:camera" : "mdi:camera-off",
-
-        // // If the sensor is "IsHandRaised", return "mdi:hand-back-left" if // state.IsHandRaised
-        // is true, otherwise return "mdi:hand-back-left-off" "IsHandRaised" => state.IsHandRaised ?
-        // "mdi:hand-back-left" : "mdi:hand-back-left-off",
-
-        // // If the sensor is "IsInMeeting", return "mdi:account-group" if state.IsInMeeting // is
-        // true, otherwise return "mdi:account-off" "IsInMeeting" => state.IsInMeeting ?
-        // "mdi:account-group" : "mdi:account-off",
-
-        // // If the sensor is "IsRecordingOn", return "mdi:record-rec" if state.IsRecordingOn // is
-        // true, otherwise return "mdi:record" "IsRecordingOn" => state.IsRecordingOn ?
-        // "mdi:record-rec" : "mdi:record",
-
-        // // If the sensor is "IsBackgroundBlurred", return "mdi:blur" if //
-        // state.IsBackgroundBlurred is true, otherwise return "mdi:blur-off" "IsBackgroundBlurred"
-        // => state.IsBackgroundBlurred ? "mdi:blur" : "mdi:blur-off",
-
-        // // If the sensor is "IsSharing", return "mdi:monitor-share" if state.IsSharing is //
-        // true, otherwise return "mdi:monitor-off" "IsSharing" => state.IsSharing ?
-        // "mdi:monitor-share" : "mdi:monitor-off",
-
-        // // If the sensor is "HasUnreadMessages", return "mdi:message-alert" if //
-        // state.HasUnreadMessages is true, otherwise return "mdi:message-outline"
-        // "HasUnreadMessages" => state.HasUnreadMessages ? "mdi:message-alert" : "mdi:message-outline",
-
-        //        // If the sensor does not match any of the above cases, return "mdi:eye"
-        //        _ => "mdi:eye"
-        //    };
-        //}
-
-        //private string GetStateValue(string sensor, MeetingUpdate meetingUpdate)
-        //{
-        //    switch (sensor)
-        //    {
-        //        case "IsMuted":
-        //            return (bool)meetingUpdate.MeetingState.GetType().GetProperty(sensor).GetValue(meetingUpdate.MeetingState, null) ? "ON" : "OFF";
-
-        // case "IsVideoOn": return
-        // (bool)meetingUpdate.MeetingState.GetType().GetProperty(sensor).GetValue(meetingUpdate.MeetingState,
-        // null) ? "ON" : "OFF";
-
-        // case "IsBackgroundBlurred": return
-        // (bool)meetingUpdate.MeetingState.GetType().GetProperty(sensor).GetValue(meetingUpdate.MeetingState,
-        // null) ? "ON" : "OFF";
-
-        // case "IsHandRaised": // Cast to bool and then check the value return
-        // (bool)meetingUpdate.MeetingState.GetType().GetProperty(sensor).GetValue(meetingUpdate.MeetingState,
-        // null) ? "ON" : "OFF";
-
-        // case "IsInMeeting": return
-        // (bool)meetingUpdate.MeetingState.GetType().GetProperty(sensor).GetValue(meetingUpdate.MeetingState,
-        // null) ? "True" : "False";
-
-        // case "HasUnreadMessages": return
-        // (bool)meetingUpdate.MeetingState.GetType().GetProperty(sensor).GetValue(meetingUpdate.MeetingState,
-        // null) ? "True" : "False";
-
-        // case "IsRecordingOn": return
-        // (bool)meetingUpdate.MeetingState.GetType().GetProperty(sensor).GetValue(meetingUpdate.MeetingState,
-        // null) ? "True" : "False";
-
-        // case "IsSharing": // Similar casting for these properties return
-        // (bool)meetingUpdate.MeetingState.GetType().GetProperty(sensor).GetValue(meetingUpdate.MeetingState,
-        // null) ? "True" : "False";
-
-        // case "teamsRunning": return
-        // (bool)meetingUpdate.MeetingState.GetType().GetProperty(sensor).GetValue(meetingUpdate.MeetingState,
-        // null) ? "True" : "False";
-
-        //        default:
-        //            return "unknown";
-        //    }
-        //}
-
-        private void HandleSwitchCommand(string topic, string command)
-        {
-            // Determine which switch is being controlled based on the topic
-            string switchName = topic.Split('/')[2]; // Assuming topic format is "homeassistant/switch/{switchName}/set"
-            int underscoreIndex = switchName.IndexOf('_');
-            if (underscoreIndex != -1 && underscoreIndex < switchName.Length - 1)
-            {
-                switchName = switchName.Substring(underscoreIndex + 1);
-            }
-            string jsonMessage = "";
-            switch (switchName)
-            {
-                case "ismuted":
-                    jsonMessage = $"{{\"apiVersion\":\"1.0.0\",\"service\":\"toggle-mute\",\"action\":\"toggle-mute\",\"manufacturer\":\"Jimmy White\",\"device\":\"THFHA\",\"timestamp\":{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()},\"requestId\":1}}";
-                    break;
-
-                case "isvideoon":
-                    jsonMessage = $"{{\"apiVersion\":\"1.0.0\",\"service\":\"toggle-video\",\"action\":\"toggle-video\",\"manufacturer\":\"Jimmy White\",\"device\":\"THFHA\",\"timestamp\":{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()},\"requestId\":1}}";
-                    break;
-
-                case "isbackgroundblurred":
-                    jsonMessage = $"{{\"apiVersion\":\"1.0.0\",\"service\":\"background-blur\",\"action\":\"toggle-background-blur\",\"manufacturer\":\"Jimmy White\",\"device\":\"THFHA\",\"timestamp\":{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()},\"requestId\":1}}";
-                    break;
-
-                case "ishandraised":
-                    jsonMessage = $"{{\"apiVersion\":\"1.0.0\",\"service\":\"raise-hand\",\"action\":\"toggle-hand\",\"manufacturer\":\"Jimmy White\",\"device\":\"THFHA\",\"timestamp\":{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()},\"requestId\":1}}";
-                    break;
-
-                    // Add other cases as needed
-            }
-
-            if (!string.IsNullOrEmpty(jsonMessage))
-            {
-                // Raise the event
-                CommandToTeams?.Invoke(jsonMessage);
-            }
-        }
-
         private void InitializeClient()
         {
             if (_mqttClient == null)
@@ -583,7 +475,6 @@ namespace PC2MQTT
                 }
             }
         }
-
         private void InitializeClientOptions()
         {
             try
@@ -664,28 +555,31 @@ namespace PC2MQTT
                 throw; // Rethrowing the exception to handle it outside or log it as fatal depending on your error handling strategy.
             }
         }
-
-        private Task OnMessageReceivedAsync(MqttApplicationMessageReceivedEventArgs e)
+        private async Task OnMessageReceivedAsync(MqttApplicationMessageReceivedEventArgs e)
         {
-            Log.Information($"Received message on topic {e.ApplicationMessage.Topic}: {e.ApplicationMessage.ConvertPayloadToString()}");
             string topic = e.ApplicationMessage.Topic;
             string payload = Encoding.UTF8.GetString(e.ApplicationMessage.Payload);
+            Log.Information($"Received message on topic {topic}: {payload}");
 
-            // Assuming the format is homeassistant/switch/{deviceId}/{switchName}/set Validate the
-            // topic format and extract the switchName
-            var topicParts = topic.Split(','); //not sure this is required
-            topicParts = topic.Split('/');
-            if (topicParts.Length == 4 && topicParts[0].Equals("homeassistant") && topicParts[1].Equals("switch") && topicParts[3].EndsWith("set"))
+            // Decompose the topic to understand what is the command
+            var topicParts = topic.Split('/');
+            if (topicParts.Length > 2 && topicParts[0] == "homeassistant" && topicParts[1] == "switch")
             {
-                // Extract the action and switch name from the topic
-                string switchName = topicParts[2];
-                string command = payload; // command should be ON or OFF based on the payload
-
-                // Now call the handle method
-                HandleSwitchCommand(topic, command);
+                string command = topicParts[2]; // For example: "shutdown"
+                if (topicParts.Length == 4 && topicParts[3] == "set") // To ensure it is a command
+                {
+                    HandleControlCommand(payload, command); // Handle the command
+                }
             }
-
-            return Task.CompletedTask;
+        }
+        public async Task SubscribeToControlCommands()
+        {
+            var commands = new List<string> { "shutdown", "reboot", "standby", "hibernate" };
+            foreach (var command in commands)
+            {
+                string topic = $"homeassistant/switch/{_deviceId}/{command}/set";
+                await SubscribeAsync(topic, MqttQualityOfServiceLevel.AtLeastOnce);
+            }
         }
         public async Task PublishPCMetrics()
         {
@@ -720,7 +614,7 @@ namespace PC2MQTT
                 var totalRamTopic = $"homeassistant/sensor/{_deviceId}/total_ram/state";
                 await _mqttClient.PublishAsync(new MqttApplicationMessageBuilder()
                     .WithTopic(totalRamTopic)
-                    .WithPayload(_pcMetrics.TotalRam.ToString("N2"))  // Confirm this is not zero and correctly calculated
+                    .WithPayload(_pcMetrics.TotalRam.ToString("N2"))  // Format as a string with two decimal places
                     .WithQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce)
                     .Build());
 
@@ -747,17 +641,33 @@ namespace PC2MQTT
             }
 
         }
-
-
-
-
-
         private void OnMqttPublishTimerElapsed(object sender, ElapsedEventArgs e)
         {
             PublishPCMetrics().GetAwaiter().GetResult(); // This ensures the asynchronous PublishPCMetrics method is called properly.
         }
+        private void PerformShutdown()
+        {
+            // System-specific command to shutdown
+            Process.Start("shutdown", "/s /t 0");
+        }
 
+        private void PerformStandby()
+        {
+            // System-specific command to standby
+            // Windows does not have a direct standby command, typically handled by hardware
+        }
 
+        private void PerformHibernate()
+        {
+            // System-specific command to hibernate
+            Process.Start("shutdown", "/h");
+        }
+
+        private void PerformReboot()
+        {
+            // System-specific command to reboot
+            Process.Start("shutdown", "/r /t 0");
+        }
 
         #endregion Private Methods
     }
