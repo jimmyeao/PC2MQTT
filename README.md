@@ -9,6 +9,6 @@ This will create a device with several sensors and switches in HomeAssistant via
 
 ![image](https://github.com/jimmyeao/PC2MQTT/assets/5197831/d65aa4bc-29c5-4fbc-ad8d-140362697d53)
 
-Whilsat testing I suggest you use the "Confirm Power Actions" checkbox to stop yourself inadvertantly powering off your computer!
+Whilst testing I suggest you use the "Confirm Power Actions" checkbox to stop yourself inadvertantly powering off your computer!
 
 
