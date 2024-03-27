@@ -6,7 +6,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:PC2MQTT"
         mc:Ignorable="d"
-        Title="PC2MQTT" Height="580" Width="800"
+        Title="PC2MQTT" Height="580" Width="850"
         xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
         TextElement.Foreground="{DynamicResource MaterialDesign.Brush.Foreground}"
         Background="{DynamicResource MaterialDesign.Brush.Background}"
@@ -82,6 +82,8 @@
                     <CheckBox Margin="5,0" Content="Ignore Certificate Errors" x:Name="IgnoreCert"/>
                     <CheckBox Margin="5,0" Content="Run at Windows Boot" x:Name="RunAtWindowsBootCheckBox"/>
                     <CheckBox Margin="5,0" Content="Run Minimised" x:Name="RunMinimisedCheckBox"/>
+                    <CheckBox Margin="5,0" Content="Confirm Power Actions?" x:Name="SafePowerCheckBox" />
+
                 </StackPanel>
 
                 <!-- Buttons -->
@@ -105,6 +107,7 @@
                     <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center"
                        Text="{Binding CpuUsage, StringFormat={}{0:F2}%}" />
                 </Grid>
+                <TextBlock Text="RAM Usage:"/>
                 <Grid>
 
                     <ProgressBar Height="20" Value="{Binding UsedMemoryPercentage}" Margin="5" Name="MemoryProgressBar" Maximum="100"/>

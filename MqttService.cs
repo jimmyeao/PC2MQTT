@@ -11,6 +11,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Timers;
 using System.Linq.Expressions;
+using System.Windows;
 
 namespace PC2MQTT
 {
@@ -651,28 +652,116 @@ namespace PC2MQTT
         }
         private void PerformShutdown()
         {
-            // System-specific command to shutdown
-            Process.Start("shutdown", "/s /t 0");
+            if (_settings.UseSafeCommands)
+            {
+                // Use Dispatcher to ensure the dialog is opened on the UI thread
+                Application.Current.Dispatcher.Invoke(() =>
+                {
+                    ConfirmationDialog dialog = new ConfirmationDialog("Shutdown Confirmation", "Are you sure you want to Shutdown the computer?");
+                    if (dialog.ShowDialog() == true)
+                    {
+                        Log.Information("User confirmed the shutdown command.");
+                        Process.Start("shutdown", "/s /t 0");
+
+                    }
+                    else
+                    {
+                        Log.Information("User cancelled the standby command.");
+                    }
+                });
+            }
+            else
+            {
+                // System-specific command to shutdown
+                Process.Start("shutdown", "/s /t 0");
+            }
+            
         }
 
         private void PerformStandby()
         {
             // System-specific command to standby
             // Windows does not have a direct standby command, typically handled by hardware
+            if (_settings.UseSafeCommands)
+            {
+                // Use Dispatcher to ensure the dialog is opened on the UI thread
+                Application.Current.Dispatcher.Invoke(() =>
+                {
+                    ConfirmationDialog dialog = new ConfirmationDialog("Standby Confirmation", "Are you sure you want to put the computer to standby?");
+                    if (dialog.ShowDialog() == true)
+                    {
+                        Log.Information("User confirmed the standby command.");
+                        // Proceed with the standby
+                        // Note: There's no direct command for standby in Windows, handled by hardware
+                    }
+                    else
+                    {
+                        Log.Information("User cancelled the standby command.");
+                    }
+                });
+            }
+            else
+            {
+                // Directly enter standby without confirmation, if possible
+            }
         }
+
 
         private void PerformHibernate()
         {
             // System-specific command to hibernate
-            Process.Start("shutdown", "/h");
+            if (_settings.UseSafeCommands)
+            {
+                // Use Dispatcher to ensure the dialog is opened on the UI thread
+                Application.Current.Dispatcher.Invoke(() =>
+                {
+                    ConfirmationDialog dialog = new ConfirmationDialog("Standby Confirmation", "Are you sure you want to hibernate the computer?");
+                    if (dialog.ShowDialog() == true)
+                    {
+                        Log.Information("User confirmed the hibernate command.");
+                        // Proceed with the standby
+                        Process.Start("shutdown", "/h");
+                    }
+                    else
+                    {
+                        Log.Information("User cancelled the hibernate command.");
+                    }
+                });
+            }
+            else
+            {
+                // Directly enter standby without confirmation, if possible
+                Process.Start("shutdown", "/h");
+            }
         }
 
         private void PerformReboot()
         {
             // System-specific command to reboot
-            Process.Start("shutdown", "/r /t 0");
+            if (_settings.UseSafeCommands)
+            {
+                // Use Dispatcher to ensure the dialog is opened on the UI thread
+                Application.Current.Dispatcher.Invoke(() =>
+                {
+                    ConfirmationDialog dialog = new ConfirmationDialog("Standby Confirmation", "Are you sure you want to reboot the computer?");
+                    if (dialog.ShowDialog() == true)
+                    {
+                        Log.Information("User confirmed the reboot command.");
+                        Process.Start("shutdown", "/r /t 0");
+                    }
+                    else
+                    {
+                        Log.Information("User cancelled the reboot command.");
+                    }
+                });
+            }
+            else
+            {
+                // Directly enter standby without confirmation, if possible
+                Process.Start("shutdown", "/r /t 0");
+            }
         }
 
         #endregion Private Methods
-    }
+    } //Process.Start("shutdown", "/r /t 0");
 }

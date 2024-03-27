@@ -103,7 +103,7 @@ namespace PC2MQTT
         public string MqttPort { get; set; }
         public string MqttUsername { get; set; }
 
-
+        public bool UseSafeCommands { get; set; }
 
         public bool RunAtWindowsBoot { get; set; }
         public bool RunMinimized { get; set; }

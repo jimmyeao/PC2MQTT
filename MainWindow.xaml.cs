@@ -533,7 +533,7 @@ namespace PC2MQTT
             var oldIgnoreCertificateErrors = settings.IgnoreCertificateErrors;
             var oldUseWebsockets = settings.UseWebsockets;
             var oldSensorPrefix = settings.SensorPrefix;
-
+            var oldUseSafeCommands = settings.UseSafeCommands;
             // Update the settings from UI components
             Dispatcher.Invoke(() =>
             {
@@ -547,6 +547,7 @@ namespace PC2MQTT
                 settings.UseWebsockets = Websockets.IsChecked ?? false;
                 settings.RunAtWindowsBoot = RunAtWindowsBootCheckBox.IsChecked ?? false;
                 settings.SensorPrefix = string.IsNullOrEmpty(SensorPrefixBox.Text) ? System.Environment.MachineName : SensorPrefixBox.Text;
+                settings.UseSafeCommands = SafePowerCheckBox.IsChecked ?? false;
             });
 
             // Now check if MQTT settings have changed
@@ -608,6 +609,7 @@ namespace PC2MQTT
             IgnoreCert.IsChecked = _settings.IgnoreCertificateErrors;
             MQTTPasswordBox.Password = _settings.MqttPassword;
             MqttAddress.Text = _settings.MqttAddress;
+            SafePowerCheckBox.IsChecked = _settings.UseSafeCommands;
             // Added to set the sensor prefix
             if (string.IsNullOrEmpty(_settings.SensorPrefix))
             {
