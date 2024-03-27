@@ -12,6 +12,8 @@ using System.Threading.Tasks;
 using System.Timers;
 using System.Linq.Expressions;
 using System.Windows;
+using System.Windows.Forms;
+
 
 namespace PC2MQTT
 {
@@ -684,7 +686,7 @@ namespace PC2MQTT
             if (_settings.UseSafeCommands)
             {
                 // Use Dispatcher to ensure the dialog is opened on the UI thread
-                Application.Current.Dispatcher.Invoke(() =>
+                System.Windows.Application.Current.Dispatcher.Invoke(() =>
                 {
                     ConfirmationDialog dialog = new ConfirmationDialog("Shutdown Confirmation", "Are you sure you want to Shutdown the computer?");
                     if (dialog.ShowDialog() == true)
@@ -714,18 +716,20 @@ namespace PC2MQTT
             if (_settings.UseSafeCommands)
             {
                 // Use Dispatcher to ensure the dialog is opened on the UI thread
-                Application.Current.Dispatcher.Invoke(() =>
+                System.Windows.Application.Current.Dispatcher.Invoke(() =>
                 {
                     ConfirmationDialog dialog = new ConfirmationDialog("Standby Confirmation", "Are you sure you want to put the computer to standby?");
                     if (dialog.ShowDialog() == true)
                     {
                         Log.Information("User confirmed the standby command.");
+                        System.Windows.Forms.Application.SetSuspendState(PowerState.Suspend, true, true);
                         // Proceed with the standby
                         // Note: There's no direct command for standby in Windows, handled by hardware
                     }
                     else
                     {
                         Log.Information("User cancelled the standby command.");
+                        System.Windows.Forms.Application.SetSuspendState(PowerState.Suspend, true, true);
                     }
                 });
             }
@@ -742,7 +746,7 @@ namespace PC2MQTT
             if (_settings.UseSafeCommands)
             {
                 // Use Dispatcher to ensure the dialog is opened on the UI thread
-                Application.Current.Dispatcher.Invoke(() =>
+                System.Windows.Application.Current.Dispatcher.Invoke(() =>
                 {
                     ConfirmationDialog dialog = new ConfirmationDialog("Standby Confirmation", "Are you sure you want to hibernate the computer?");
                     if (dialog.ShowDialog() == true)
@@ -792,7 +796,7 @@ namespace PC2MQTT
             if (_settings.UseSafeCommands)
             {
                 // Use Dispatcher to ensure the dialog is opened on the UI thread
-                Application.Current.Dispatcher.Invoke(() =>
+                System.Windows.Application.Current.Dispatcher.Invoke(() =>
                 {
                     ConfirmationDialog dialog = new ConfirmationDialog("Standby Confirmation", "Are you sure you want to reboot the computer?");
                     if (dialog.ShowDialog() == true)
