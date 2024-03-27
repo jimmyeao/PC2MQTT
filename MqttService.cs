@@ -729,13 +729,14 @@ namespace PC2MQTT
                     else
                     {
                         Log.Information("User cancelled the standby command.");
-                        System.Windows.Forms.Application.SetSuspendState(PowerState.Suspend, true, true);
+                        
                     }
                 });
             }
             else
             {
                 // Directly enter standby without confirmation, if possible
+                System.Windows.Forms.Application.SetSuspendState(PowerState.Suspend, true, true);
             }
         }
 
@@ -818,5 +819,5 @@ namespace PC2MQTT
         }
 
         #endregion Private Methods
-    } //Process.Start("shutdown", "/r /t 0");
+    } 
 }
