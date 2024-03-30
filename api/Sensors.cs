@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 
-namespace PC2MQTT
+namespace PC2MQTT.api
 {
     public class PCSensor
     {

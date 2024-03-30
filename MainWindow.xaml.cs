@@ -8,12 +8,16 @@ using Hardcodet.Wpf.TaskbarNotification;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using PC2MQTT.api;
+
 using System.Windows.Controls;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Forms;
 using Microsoft.VisualBasic.Devices;
+using MQTTnet.Client;
+using System.Text;
 
 
 namespace PC2MQTT
@@ -25,21 +29,20 @@ namespace PC2MQTT
     {
         private MenuItem _aboutMenuItem;
         private MenuItem _logMenuItem;
-        //private MqttManager _mqttManager;
-        private MqttService _mqttService;
-        private MenuItem _mqttStatusMenuItem;
-        //private string Mqtttopic;
         private Dictionary<string, string> _previousSensorStates = new Dictionary<string, string>();
         private AppSettings _settings;
         private string _settingsFilePath;
+        private pc_sensors _pcSensors;
         private MenuItem _teamsStatusMenuItem;
         private string deviceid;
+        private MenuItem _mqttStatusMenuItem;
+        private PCMetrics _pcMetrics;
         private bool isDarkTheme = true;
-        private bool mqttCommandToTeams = false;
         private bool mqttConnectionAttempting = false;
         private bool mqttConnectionStatusChanged = false;
         private bool mqttStatusUpdated = false;
         private System.Timers.Timer _updateTimer;
+        private MqttService _mqttService;
         private PerformanceCounter cpuCounter; // Declare, but don't initialize here
         private PerformanceCounter memoryCounter;
         private double _totalPhysicalMemory;
@@ -111,6 +114,7 @@ namespace PC2MQTT
         {
             // Get the local application data folder path
             var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+       
 
             // Configure logging
             LoggingConfig.Configure();
@@ -126,6 +130,7 @@ namespace PC2MQTT
             // Get the app settings instance
             var settings = AppSettings.Instance;
             _settings = AppSettings.Instance;
+            var _mqttService = new MqttService(_settings, "PC2MQTT");
 
             // Get the device ID
             if (string.IsNullOrEmpty(_settings.SensorPrefix))
@@ -142,32 +147,20 @@ namespace PC2MQTT
 
             // Initialize the main window
             this.InitializeComponent();
-            
+
+            InitializeMqttService();
             this.DataContext = this;
-      
-            
+           
+
             // Add event handler for when the main window is loaded
             this.Loaded += MainPage_Loaded;
-            SystemEvents.PowerModeChanged += OnPowerModeChanged; //subscribe to power events
+           
             // Set the icon for the notification tray
             string iconPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Square150x150Logo.scale-200.ico");
             MyNotifyIcon.Icon = new System.Drawing.Icon(iconPath);
             CreateNotifyIconContextMenu();
             // Create a new instance of the MQTT Service class
-            _mqttService = MqttService.GetInstance(_settings, deviceid, new List<string>()); // Use actual sensor names or leave empty if not applicable
-
-            // Now attach the event handlers
-            _mqttService.ConnectionStatusChanged += MqttManager_ConnectionStatusChanged;
-            _mqttService.ConnectionAttempting += MqttManager_ConnectionAttempting;
-
-            // Set the action to be performed when a new token is updated
-
-            // Initialize connections
-            InitializeConnections();
-            //foreach (var sensor in sensorNames)
-            //{
-            //    _previousSensorStates[$"{deviceid}_{sensor}"] = "";
-            //}
+           
         }
         private double GetCpuUsage()
         {
@@ -177,33 +170,44 @@ namespace PC2MQTT
             while (cpuReadings.Count > 10) cpuReadings.Dequeue();
             return cpuReadings.Average();
         }
-        
-
-        public async Task InitializeConnections()
+        private async Task PublishMessage(string topic, string payload)
         {
-            if (_mqttService != null)
-            {
-                await _mqttService.ConnectAsync();
-                await _mqttService.SubscribeAsync("homeassistant/switch/+/set", MqttQualityOfServiceLevel.AtLeastOnce);
-            }
-
+            await _mqttService.PublishAsync(topic, payload, MqttQualityOfServiceLevel.AtLeastOnce);
         }
-        private void MqttManager_ConnectionAttempting(string status)
+        private async Task SubscribeToTopic(string topic)
         {
-            try
-            {
-                Dispatcher.Invoke(() =>
+            await _mqttService.SubscribeAsync(topic, MqttQualityOfServiceLevel.AtLeastOnce);
+        }
+        private void InitializeMqttService()
+        {
+            // Assuming _settings and clientId are properly set up here
+            _mqttService = new MqttService(_settings, "YourClientIdHere");
+            _mqttService.MessageReceived += OnMessageReceivedAsync;
+            _= PublishAutoDiscoveryConfigs();
+        }
+
+        private async Task OnMessageReceivedAsync(MqttApplicationMessageReceivedEventArgs e)
+        {
+            // Process received message
+            var message = Encoding.UTF8.GetString(e.ApplicationMessage.Payload);
+            Console.WriteLine($"Message received on topic {e.ApplicationMessage.Topic}: {message}");
+            // Implement further processing as needed
+        }
+
+
+        private void OnMqttMessageReceived(string topic, string payload)
+        {
+            // Handle the received message. Update UI or process data as needed.
+            Dispatcher.Invoke(() => {
+                // Example: Update UI based on topic and payload
+                if (topic == "some/specific/topic")
                 {
-                    MQTTConnectionStatus.Text = status;
-                    _mqttStatusMenuItem.Header = status; // Update the system tray menu item as well
-                });
-            }
-            catch (Exception ex)
-            {
-                Log.Error($"Error updating connection status: {ex.Message}");
-            }
-         
+                    // Update your UI or internal state
+                }
+            });
         }
+
+
         private void UpdateCpuUsageDisplay()
         {
             if (cpuCounter == null) return;
@@ -213,6 +217,7 @@ namespace PC2MQTT
             Dispatcher.Invoke(() => {
                 CpuUsage = cpuUsage; // Update bound property
             });
+
         }
         private void UpdateMemoryUsageDisplay()
         {
@@ -240,17 +245,7 @@ namespace PC2MQTT
                UsedMemoryPercentage = memoryUsagePercentage;                                   // Update other UI elements if necessary.
             });
         }
-
-
-
-
-        private void MqttManager_ConnectionStatusChanged(string status)
-        {
-            Dispatcher.Invoke(() =>
-            {
-                MQTTConnectionStatus.Text = status; // Ensure MQTTConnectionStatus is the correct UI element's name
-            });
-        }
+      
         private void InitializeTimer()
         {
             _updateTimer = new System.Timers.Timer(1000); // Update every second
@@ -284,15 +279,7 @@ namespace PC2MQTT
                 var unusedMem = memoryCounter.NextValue(); // Prime the memory counter. 
             });
         }
-        private void OnPowerModeChanged(object sender, PowerModeChangedEventArgs e)
-        {
-            if (e.Mode == PowerModes.Resume)
-            {
-                Log.Information("System is waking up from sleep. Re-establishing connections...");
-                // Implement logic to re-establish connections
-                ReestablishConnections();
-            }
-        }
+      
         protected override void OnStateChanged(EventArgs e)
         {
             if (WindowState == WindowState.Minimized)
@@ -325,7 +312,7 @@ namespace PC2MQTT
             }
 
             // Get the list of sensors and switches from the MqttService instance
-            var sensorsAndSwitches = new List<string>(_mqttService.GetSensorAndSwitchNames());
+            var sensorsAndSwitches = new List<string>(_pcSensors.GetSensorAndSwitchNames(deviceid));
 
             // Create and display the AboutWindow
             AboutWindow aboutWindow = new AboutWindow(deviceid, MyNotifyIcon, sensorsAndSwitches);
@@ -348,24 +335,22 @@ namespace PC2MQTT
             {
                 UpdateCpuUsageDisplay();  // This updates this.CpuUsage based on latest system info
                 UpdateMemoryUsageDisplay(); // This updates this.MemoryUsage and RAM values based on latest system info
-
+                PublishMetrics(); // Publish the updated metrics to MQTT
                 // Copy values to local variables after they have been updated
                 localCpuUsage = metrics.CpuUsage;
                 localMemoryUsage = metrics.MemoryUsage;
                 localTotalRam = metrics.TotalRam;
                 localFreeRam = metrics.FreeRam;
                 localUsedRam = metrics.UsedRam;
+               
             });
 
             
             metrics.CpuUsage = localCpuUsage;
            
             // Pass the updated singleton instance to your MQTT service for publishing
-            _mqttService?.UpdatePCMetrics(metrics);
+            _pcSensors?.UpdatePCMetrics(metrics);
         }
-
-
-
         private void ApplyTheme(string theme)
         {
             isDarkTheme = theme == "Dark";
@@ -502,41 +487,86 @@ namespace PC2MQTT
         }
         protected override async void OnClosing(CancelEventArgs e)
         {
-            _updateTimer.Elapsed -= OnTimedEvent; // Unsubscribe from the Elapsed event
-            _updateTimer.Stop(); // Stop the timer
-            _updateTimer.Dispose(); // Dispose of the timer
-            // Unsubscribe from events and clean up
-            if (_mqttService != null)
-            {
-                _mqttService.ConnectionStatusChanged -= MqttManager_ConnectionStatusChanged;
-                _mqttService.StatusUpdated -= UpdateMqttStatus;
+            base.OnClosing(e);
+            _updateTimer.Elapsed -= OnTimedEvent;
+            _updateTimer.Stop();
+            _updateTimer.Dispose();
 
-            }
-            
-            // we want all the sensors to be off if we are exiting, lets initialise them, to do this
-            await _mqttService.SetupMqttSensors();
+            MyNotifyIcon.Dispose();
+
             if (_mqttService != null)
             {
-                await _mqttService.DisconnectAsync(); // Properly disconnect before disposing
-                _mqttService.Dispose();
-                Log.Debug("MQTT Client Disposed");
+                await _mqttService.DisconnectAsync();
             }
-            MyNotifyIcon.Dispose();
-            base.OnClosing(e); // Call the base class method
-            SystemEvents.PowerModeChanged -= OnPowerModeChanged;
         }
+
         private void UpdateStatusMenuItems()
         {
             Dispatcher.Invoke(() =>
             {
+                // Check if _mqttService is not null and use the IsConnected property
+                var isConnected = _mqttService?.IsConnected ?? false;
+                var statusText = isConnected ? "MQTT Status: Connected" : "MQTT Status: Disconnected";
+
                 // Update MQTT connection status text
-                MQTTConnectionStatus.Text = _mqttService != null && _mqttService.IsConnected ? "MQTT Status: Connected" : "MQTT Status: Disconnected";
+                MQTTConnectionStatus.Text = statusText;
                 // Update menu items
-                _mqttStatusMenuItem.Header = MQTTConnectionStatus.Text; // Reuse the text set above
-                
+                if (_mqttStatusMenuItem != null) // Ensure _mqttStatusMenuItem is not null
+                {
+                    _mqttStatusMenuItem.Header = statusText;
+                }
+
                 // Add other status updates here as necessary
             });
         }
+        private async Task PublishAutoDiscoveryConfigs()
+        {
+            var baseTopic = $"homeassistant/sensor/{deviceid}/";
+            var sensors = new Dictionary<string, string>
+            {
+                {"cpu_usage", "%"},
+                {"total_ram", "GB"},
+                {"free_ram", "GB"},
+                {"used_ram", "GB"}
+            };
+
+            foreach (var sensor in sensors)
+            {
+                var configTopic = $"{baseTopic}{sensor.Key}/config";
+                var payload = new
+                {
+                    name = $"{deviceid} {sensor.Key.Replace("_", " ").ToUpper()}",
+                    state_topic = $"{baseTopic}{sensor.Key}/state",
+                    unit_of_measurement = sensor.Value,
+                    value_template = "{{ value_json.value }}",
+                    device_class = "measurement",
+                    unique_id = $"{deviceid}_{sensor.Key}"
+                };
+
+                await _mqttService.PublishAsync(configTopic, JsonConvert.SerializeObject(payload));
+            }
+        }
+
+        private async Task PublishMetrics()
+        {
+            if (_pcMetrics == null) return;
+            var baseTopic = $"homeassistant/sensor/{deviceid}/";
+                    var metrics = new Dictionary<string, object>
+            {
+                {"cpu_usage", _pcMetrics.CpuUsage},
+                {"total_ram", _pcMetrics.TotalRam},
+                {"free_ram", _pcMetrics.FreeRam},
+                {"used_ram", _pcMetrics.UsedRam}
+            };
+
+            foreach (var metric in metrics)
+            {
+                var stateTopic = $"{baseTopic}{metric.Key}/state";
+                var payload = JsonConvert.SerializeObject(new { value = metric.Value });
+                await _mqttService.PublishAsync(stateTopic, payload);
+            }
+        }
+
         private async void SaveSettings_Click(object sender, RoutedEventArgs e)
         {
             Log.Debug("SaveSettings_Click: Save Settings Clicked" + _settings.ToString());
@@ -602,31 +632,10 @@ namespace PC2MQTT
             {
                 // Perform actions if MQTT settings or sensor prefix have changed
                 Log.Debug("SaveSettingsAsync: MQTT settings have changed. Reconnecting MQTT client...");
-                await _mqttService.UnsubscribeAsync("homeassistant/switch/+/set");
-                await _mqttService.DisconnectAsync();
-                await _mqttService.UpdateSettingsAsync(settings); // Make sure to pass the updated settings
-                await _mqttService.ConnectAsync();
-                await _mqttService.SubscribeAsync("homeassistant/switch/+/set", MqttQualityOfServiceLevel.AtLeastOnce);
+              
             }
         }
-        private async void ReestablishConnections()
-        {
-            try
-            {
-                if (!_mqttService.IsConnected)
-                {
-                    await _mqttService.ConnectAsync();
-                    await _mqttService.SubscribeAsync("homeassistant/switch/+/set", MqttQualityOfServiceLevel.AtLeastOnce);
-                    //await _mqttService.SetupMqttSensors();
-                    Dispatcher.Invoke(() => UpdateStatusMenuItems());
-                }
-
-            }
-            catch (Exception ex)
-            {
-                Log.Error($"Error re-establishing connections: {ex.Message}");
-            }
-        }
+  
         private async void MainPage_Loaded(object sender, RoutedEventArgs e)
         {
             //LoadSettings();
