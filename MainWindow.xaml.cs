@@ -71,6 +71,7 @@ namespace PC2MQTT
 
         private Queue<double> cpuReadings = new Queue<double>();
         public event PropertyChangedEventHandler PropertyChanged;
+       
         protected void OnPropertyChanged(string propertyName)
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
@@ -153,7 +154,7 @@ namespace PC2MQTT
             MyNotifyIcon.Icon = new System.Drawing.Icon(iconPath);
             CreateNotifyIconContextMenu();
             // Create a new instance of the MQTT Service class
-            _mqttService = new MqttService(_settings, deviceid, new List<string>()); // Use actual sensor names or leave empty if not applicable
+            _mqttService = MqttService.GetInstance(_settings, deviceid, new List<string>()); // Use actual sensor names or leave empty if not applicable
 
             // Now attach the event handlers
             _mqttService.ConnectionStatusChanged += MqttManager_ConnectionStatusChanged;
@@ -176,7 +177,7 @@ namespace PC2MQTT
             while (cpuReadings.Count > 10) cpuReadings.Dequeue();
             return cpuReadings.Average();
         }
-
+        
 
         public async Task InitializeConnections()
         {

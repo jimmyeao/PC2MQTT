@@ -25,6 +25,7 @@ namespace PC2MQTT
         private const int RetryDelayMilliseconds = 1000;
         private string _deviceId;
         private bool _isAttemptingConnection = false;
+        private bool isShuttingDown = false;
         private MqttClient _mqttClient;
         private bool _mqttClientsubscribed = false;
         private MqttClientOptions _mqttOptions;
@@ -35,12 +36,14 @@ namespace PC2MQTT
         private HashSet<string> _subscribedTopics = new HashSet<string>();
         private System.Timers.Timer mqttPublishTimer;
         private bool mqttPublishTimerset = false;
+        private static MqttService _instance;
+        private static readonly object _lock = new object();
 
-    #endregion Private Fields
+        #endregion Private Fields
 
-    #region Public Constructors
+        #region Public Constructors
 
-    public MqttService(AppSettings settings, string deviceId, List<string> sensorNames)
+        private MqttService(AppSettings settings, string deviceId, List<string> sensorNames)
         {
             _pcMetrics = PCMetrics.Instance;
 
@@ -80,11 +83,27 @@ namespace PC2MQTT
         public event Func<MqttApplicationMessageReceivedEventArgs, Task> MessageReceived;
 
         public event Action<string> StatusUpdated;
-
+        public void BeginShutdownProcess()
+        {
+            isShuttingDown = true;
+        }
         #endregion Public Events
 
         #region Public Properties
-
+        public static MqttService GetInstance(AppSettings settings, string deviceId, List<string> sensorNames)
+        {
+            if (_instance == null)
+            {
+                lock (_lock)
+                {
+                    if (_instance == null)
+                    {
+                        _instance = new MqttService(settings, deviceId, sensorNames);
+                    }
+                }
+            }
+            return _instance;
+        }
         public bool IsAttemptingConnection
         {
             get { return _isAttemptingConnection; }
@@ -506,9 +525,104 @@ namespace PC2MQTT
                 InitializeClientOptions(); // Ensure options are initialized with current settings
                 if (_mqttClientsubscribed == false)
                 {
+                    _mqttClient.ApplicationMessageReceivedAsync -= OnMessageReceivedAsync;
                     _mqttClient.ApplicationMessageReceivedAsync += OnMessageReceivedAsync;
                     _mqttClientsubscribed = true;
                 }
+                _mqttClient.ConnectedAsync += async e =>
+                {
+                    Log.Information("Connected to MQTT broker.");
+                    // Handle post-connection setup, e.g., subscriptions.
+                    await SetupSubscriptionsAsync();
+                };
+
+                _mqttClient.DisconnectedAsync += async e =>
+                {
+                    if (!isShuttingDown)
+                    {
+                        Log.Information("Disconnected from MQTT broker, attempting to reconnect...");
+                        // Implement your reconnection logic here
+                        await ReconnectAsync();
+                    }
+                    else
+                    {
+                        //Log.Information("MQTT client disconnected and shutdown in progress, skipping reconnection.");
+                    }
+                };
+
+            }
+        }
+        public async Task SetupSubscriptionsAsync()
+        {
+            // Subscribe to necessary topics
+            await SubscribeAsync($"homeassistant/switch/{_settings.SensorPrefix}/+/set", MqttQualityOfServiceLevel.AtLeastOnce, true);
+
+            // Add any other necessary subscriptions here
+        }
+        public async Task SubscribeAsync(string topic, MqttQualityOfServiceLevel qos, bool force) //subscribes to a topic on MQTT
+        {
+            // check if we are connected
+            if (!_mqttClient.IsConnected)
+            {
+                Log.Information("Cant subscribe MQTT client is not connected.");
+                return;
+            }
+            // Check if already subscribed
+
+            if (_subscribedTopics.Contains(topic) && !force)
+            {
+                Log.Information($"Already subscribed to {topic}.");
+                return;
+            }
+
+            var subscribeOptions = new MqttClientSubscribeOptionsBuilder()
+                .WithTopicFilter(f => f.WithTopic(topic).WithQualityOfServiceLevel(qos))
+                .Build();
+
+            try
+            {
+                await _mqttClient.SubscribeAsync(subscribeOptions);
+                _subscribedTopics.Add(topic); // Track the subscription
+                Log.Information("Subscribed to " + topic);
+            }
+            catch (Exception ex)
+            {
+                Log.Information($"Error during MQTT subscribe: {ex.Message}");
+            }
+
+            // new code for reactions
+
+        }
+        public async Task ReconnectAsync()
+        {
+            if (isShuttingDown)
+            {
+
+                return;
+            }
+            int attempt = 0;
+            while (!_mqttClient.IsConnected && attempt < MaxConnectionRetries)
+            {
+                attempt++;
+                try
+                {
+                    Log.Information($"Reconnection attempt {attempt}...");
+                    var result = await _mqttClient.ConnectAsync(_mqttOptions);
+                    if (result.ResultCode == MqttClientConnectResultCode.Success)
+                    {
+                        Log.Information("Reconnected to MQTT broker.");
+                        return; // Successfully reconnected
+                    }
+                    else
+                    {
+                        Log.Warning($"Reconnection failed with result code: {result.ResultCode}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Error($"Reconnection attempt failed: {ex.Message}");
+                }
+                await Task.Delay(RetryDelayMilliseconds * attempt); // Exponential back-off
             }
         }
         private void InitializeClientOptions()
