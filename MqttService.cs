@@ -143,6 +143,5 @@ namespace PC2MQTT
         }
 
 
-        // Add more functionality as needed, such as UnsubscribeAsync, DisconnectAsync, etc.
     }
 }
