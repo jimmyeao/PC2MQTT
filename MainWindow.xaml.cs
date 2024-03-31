@@ -166,9 +166,11 @@ namespace PC2MQTT
         {
             if (cpuCounter == null) return 0; // Safety check
             var value = cpuCounter.NextValue();
+            
             cpuReadings.Enqueue(value);
             while (cpuReadings.Count > 10) cpuReadings.Dequeue();
             return cpuReadings.Average();
+            
         }
 
         private void MqttManager_ConnectionStatusChanged(string status)
@@ -212,16 +214,17 @@ namespace PC2MQTT
         }
 
 
-        private void UpdateCpuUsageDisplay()
+        private async void UpdateCpuUsageDisplay()
         {
-            if (cpuCounter == null) return;
+            //if (cpuCounter == null) return;
             double cpuUsage = GetCpuUsage(); // Fetch new value
             PCMetrics metrics = PCMetrics.Instance;
             metrics.CpuUsage = cpuUsage; // Update the singleton instance
             Dispatcher.Invoke(() => {
-                CpuUsage = cpuUsage; // Update bound property
+                _viewModel.CpuUsage = cpuUsage; // Update bound property
+                //Log.Debug("CPU Usage: {cpuUsage}", cpuUsage);
             });
-
+           
         }
 
         private void UpdateMemoryUsageDisplay()
@@ -247,7 +250,8 @@ namespace PC2MQTT
             Dispatcher.Invoke(() =>
             {
                 MemoryUsage = memoryUsagePercentage; // Update UI element for memory usage
-               UsedMemoryPercentage = memoryUsagePercentage;                                   // Update other UI elements if necessary.
+               UsedMemoryPercentage = memoryUsagePercentage;
+                _viewModel.UsedMemoryPercentage = memoryUsagePercentage;// Update other UI elements if necessary.
             });
         }
       
@@ -340,17 +344,18 @@ namespace PC2MQTT
             {
                 UpdateCpuUsageDisplay();  // This updates this.CpuUsage based on latest system info
                 UpdateMemoryUsageDisplay(); // This updates this.MemoryUsage and RAM values based on latest system info
-                PublishMetrics(); // Publish the updated metrics to MQTT
-                // Copy values to local variables after they have been updated
-                localCpuUsage = metrics.CpuUsage;
+                CpuUsage = metrics.CpuUsage;
+                MemoryUsage = metrics.MemoryUsage;
+                 // Copy values to local variables after they have been updated
+                 localCpuUsage = metrics.CpuUsage;
                 localMemoryUsage = metrics.MemoryUsage;
                 localTotalRam = metrics.TotalRam;
                 localFreeRam = metrics.FreeRam;
                 localUsedRam = metrics.UsedRam;
                
             });
+            _ = PublishMetrics(); // Publish the updated metrics to MQTT
 
-            
             metrics.CpuUsage = localCpuUsage;
            
             // Pass the updated singleton instance to your MQTT service for publishing
@@ -526,38 +531,50 @@ namespace PC2MQTT
         private async Task PublishAutoDiscoveryConfigs()
         {
             var baseTopic = $"homeassistant/sensor/{deviceid}/";
-            var sensors = new Dictionary<string, string>
-            {
-                {"cpu_usage", "%"},
-                {"total_ram", "GB"},
-                {"free_ram", "GB"},
-                {"used_ram", "GB"}
-            };
+            var sensors = new Dictionary<string, (string Unit, string Icon)>
+    {
+        {"cpu_usage", ("%", "mdi:memory")},
+        // Add other sensors here, e.g., "total_ram", "free_ram", "used_ram" with their respective units and icons
+        {"total_ram", ("GB", "mdi:memory")},
+        {"free_ram", ("GB", "mdi:memory")},
+        {"used_ram", ("GB", "mdi:memory")}
+    };
 
             foreach (var sensor in sensors)
             {
                 var configTopic = $"{baseTopic}{sensor.Key}/config";
                 var payload = new
                 {
-                    name = $"{deviceid} {sensor.Key.Replace("_", " ").ToUpper()}",
+                    name = $"{deviceid.ToUpper()} {sensor.Key.Replace("_", " ")}",
+                    unique_id = $"{deviceid}_{sensor.Key}",
+                    device = new
+                    {
+                        identifiers = new[] { deviceid },
+                        manufacturer = "Custom",
+                        model = "PC Monitor",
+                        name = deviceid.ToUpper(),
+                        sw_version = "1.0"
+                    },
                     state_topic = $"{baseTopic}{sensor.Key}/state",
-                    unit_of_measurement = sensor.Value,
-                    value_template = "{{ value_json.value }}",
-                    device_class = "measurement",
-                    unique_id = $"{deviceid}_{sensor.Key}"
+                    unit_of_measurement = sensor.Value.Unit,
+                    icon = sensor.Value.Icon
                 };
 
                 await _mqttService.PublishAsync(configTopic, JsonConvert.SerializeObject(payload));
+                Log.Debug($"Published auto-discovery config for {sensor.Key}");
             }
         }
 
+
         private async Task PublishMetrics()
         {
+            _pcMetrics = PCMetrics.Instance;
             if (_pcMetrics == null) return;
             var baseTopic = $"homeassistant/sensor/{deviceid}/";
-                    var metrics = new Dictionary<string, object>
+            var metrics = new Dictionary<string, object>
             {
                 {"cpu_usage", _pcMetrics.CpuUsage},
+                // Add other metrics here as needed
                 {"total_ram", _pcMetrics.TotalRam},
                 {"free_ram", _pcMetrics.FreeRam},
                 {"used_ram", _pcMetrics.UsedRam}
@@ -566,10 +583,15 @@ namespace PC2MQTT
             foreach (var metric in metrics)
             {
                 var stateTopic = $"{baseTopic}{metric.Key}/state";
-                var payload = JsonConvert.SerializeObject(new { value = metric.Value });
+                // Format the value as a string with two decimal places
+                var payload = string.Format("{0:F2}", metric.Value);
                 await _mqttService.PublishAsync(stateTopic, payload);
+                
             }
         }
+
+
+
 
         private async void SaveSettings_Click(object sender, RoutedEventArgs e)
         {
