@@ -1,0 +1,6 @@
+﻿await _mqttService.UnsubscribeAsync("your/subscription/topic");
+// or multiple topics
+await _mqttService.UnsubscribeAsync("topic/one", "topic/two", "topic/three");
+
+await _mqttService.PublishAsync("your/topic/here", JsonConvert.SerializeObject(yourDataObject));
+await _mqttService.SubscribeAsync("your/subscription/topic", MqttQualityOfServiceLevel.AtLeastOnce);
