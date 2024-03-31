@@ -635,16 +635,19 @@ namespace PC2MQTT
             if (mqttSettingsChanged || sensorPrefixChanged)
             {
               
-                // Perform actions if MQTT settings or sensor prefix have changed
-                Log.Debug("SaveSettingsAsync: MQTT settings have changed. Reconnecting MQTT client...");
-                _mqttService.MessageReceived -= OnMessageReceivedAsync;
-                _mqttService.StatusMessageReceived -= UpdateMqttStatus;
-                _mqttService.ConnectionStatusChanged -= MqttManager_ConnectionStatusChanged;
-                await MqttService.Instance.ReinitializeAsync(_settings, "PC2MQTT");
-                _mqttService = MqttService.Instance;
-                SetupMqttEventHandlers();
+              restartMqtt();
 
             }
+        }
+        private async void restartMqtt()
+        {
+            Log.Debug("SaveSettingsAsync: MQTT settings have changed. Reconnecting MQTT client...");
+            _mqttService.MessageReceived -= OnMessageReceivedAsync;
+            _mqttService.StatusMessageReceived -= UpdateMqttStatus;
+            _mqttService.ConnectionStatusChanged -= MqttManager_ConnectionStatusChanged;
+            await MqttService.Instance.ReinitializeAsync(_settings, "PC2MQTT");
+            _mqttService = MqttService.Instance;
+            SetupMqttEventHandlers();
         }
         private void SetupMqttEventHandlers()
         {
