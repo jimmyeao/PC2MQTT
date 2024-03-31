@@ -125,7 +125,7 @@
         <!-- Status Section -->
         <StatusBar Grid.Row="3" HorizontalAlignment="Stretch" VerticalAlignment="Bottom" Margin="5">
             <StatusBarItem>
-                <TextBlock x:Name="MQTTConnectionStatus" Text="Disconnected"/>
+                <TextBlock x:Name="MQTTConnectionStatus" Text="Initialising"/>
             </StatusBarItem>
         </StatusBar>
         <tb:TaskbarIcon x:Name="MyNotifyIcon"  TrayMouseDoubleClick="MyNotifyIcon_Click" Visibility="Visible"/>

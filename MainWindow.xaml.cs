@@ -38,13 +38,12 @@ namespace PC2MQTT
         private MenuItem _mqttStatusMenuItem;
         private PCMetrics _pcMetrics;
         private bool isDarkTheme = true;
-        private bool mqttConnectionAttempting = false;
-        private bool mqttConnectionStatusChanged = false;
         private bool mqttStatusUpdated = false;
         private System.Timers.Timer _updateTimer;
         private MqttService _mqttService;
         private PerformanceCounter cpuCounter; // Declare, but don't initialize here
         private PerformanceCounter memoryCounter;
+        private MainViewModel _viewModel;
         private double _totalPhysicalMemory;
         public double TotalPhysicalMemory
         {
@@ -130,7 +129,7 @@ namespace PC2MQTT
             // Get the app settings instance
             var settings = AppSettings.Instance;
             _settings = AppSettings.Instance;
-            var _mqttService = new MqttService(_settings, "PC2MQTT");
+            
 
             // Get the device ID
             if (string.IsNullOrEmpty(_settings.SensorPrefix))
@@ -141,15 +140,16 @@ namespace PC2MQTT
             {
                 deviceid = _settings.SensorPrefix;
             }
-
+            
+            
             // Log the settings file path
             Log.Debug("Settings file path is {path}", _settingsFilePath);
 
             // Initialize the main window
             this.InitializeComponent();
-
+            _viewModel = new MainViewModel();
+            DataContext = _viewModel;
             InitializeMqttService();
-            this.DataContext = this;
            
 
             // Add event handler for when the main window is loaded
@@ -170,21 +170,25 @@ namespace PC2MQTT
             while (cpuReadings.Count > 10) cpuReadings.Dequeue();
             return cpuReadings.Average();
         }
-        private async Task PublishMessage(string topic, string payload)
+
+        private void MqttManager_ConnectionStatusChanged(string status)
         {
-            await _mqttService.PublishAsync(topic, payload, MqttQualityOfServiceLevel.AtLeastOnce);
+            Dispatcher.Invoke(() =>
+            {
+                MQTTConnectionStatus.Text = status; // Ensure MQTTConnectionStatus is the correct UI element's name
+            });
         }
-        private async Task SubscribeToTopic(string topic)
+        private async void InitializeMqttService()
         {
-            await _mqttService.SubscribeAsync(topic, MqttQualityOfServiceLevel.AtLeastOnce);
+            _mqttService = MqttService.Instance;
+            _mqttService.ConnectionStatusChanged += MqttManager_ConnectionStatusChanged;
+            SetupMqttEventHandlers();
+            MqttService.Instance.InitializeAsync(_settings, "PC2MQTT").GetAwaiter().GetResult();
+            UpdateMqttStatus(_mqttService.CurrentStatus);
+            // _mqttService.Initialize(_settings, "PC2MQTT");
+            await PublishAutoDiscoveryConfigs();
         }
-        private void InitializeMqttService()
-        {
-            // Assuming _settings and clientId are properly set up here
-            _mqttService = new MqttService(_settings, "YourClientIdHere");
-            _mqttService.MessageReceived += OnMessageReceivedAsync;
-            _= PublishAutoDiscoveryConfigs();
-        }
+
 
         private async Task OnMessageReceivedAsync(MqttApplicationMessageReceivedEventArgs e)
         {
@@ -219,6 +223,7 @@ namespace PC2MQTT
             });
 
         }
+
         private void UpdateMemoryUsageDisplay()
         {
             // Initialization and safety checks.
@@ -480,10 +485,9 @@ namespace PC2MQTT
         {
             Dispatcher.Invoke(() =>
             {
-                // Assuming MQTTConnectionStatus is a Label or similar control
-                MQTTConnectionStatus.Text = $"MQTT Status: {status}";
-                UpdateStatusMenuItems();
+                _viewModel.MqttStatus = status;
             });
+
         }
         protected override async void OnClosing(CancelEventArgs e)
         {
@@ -509,7 +513,7 @@ namespace PC2MQTT
                 var statusText = isConnected ? "MQTT Status: Connected" : "MQTT Status: Disconnected";
 
                 // Update MQTT connection status text
-                MQTTConnectionStatus.Text = statusText;
+                //MQTTConnectionStatus.Text = statusText;
                 // Update menu items
                 if (_mqttStatusMenuItem != null) // Ensure _mqttStatusMenuItem is not null
                 {
@@ -630,12 +634,26 @@ namespace PC2MQTT
 
             if (mqttSettingsChanged || sensorPrefixChanged)
             {
+              
                 // Perform actions if MQTT settings or sensor prefix have changed
                 Log.Debug("SaveSettingsAsync: MQTT settings have changed. Reconnecting MQTT client...");
-              
+                _mqttService.MessageReceived -= OnMessageReceivedAsync;
+                _mqttService.StatusMessageReceived -= UpdateMqttStatus;
+                _mqttService.ConnectionStatusChanged -= MqttManager_ConnectionStatusChanged;
+                await MqttService.Instance.ReinitializeAsync(_settings, "PC2MQTT");
+                _mqttService = MqttService.Instance;
+                SetupMqttEventHandlers();
+
             }
         }
-  
+        private void SetupMqttEventHandlers()
+        {
+            _mqttService.MessageReceived += OnMessageReceivedAsync;
+            _mqttService.StatusMessageReceived += UpdateMqttStatus;
+            _mqttService.ConnectionStatusChanged += MqttManager_ConnectionStatusChanged;
+            Log.Information("MQTT event handlers set up.");
+        }
+
         private async void MainPage_Loaded(object sender, RoutedEventArgs e)
         {
             //LoadSettings();
