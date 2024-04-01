@@ -8,6 +8,8 @@ using Serilog;
 using System.Text;
 using System.Threading.Tasks;
 using System.Data;
+using Newtonsoft.Json;
+using PC2MQTT.api;
 
 namespace PC2MQTT
 {
@@ -22,14 +24,17 @@ namespace PC2MQTT
         private bool _isInitialized = false;
         private Queue<MqttApplicationMessage> _messageQueue = new Queue<MqttApplicationMessage>();
         private IManagedMqttClient _mqttClient;
-
+        private pc_sensors _pc_sensors;
         #endregion Private Fields
 
         #region Private Constructors
 
-        private MqttService()
+        private MqttService(AppSettings settings)
         {
             //InitializeMqttClient().GetAwaiter().GetResult();
+            _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+            _pc_sensors = new pc_sensors(_settings);
+            
             Log.Information("MQTT client initialized.");
         }
 
@@ -51,16 +56,14 @@ namespace PC2MQTT
         {
             get
             {
-                lock (_lock)
+                if (_instance == null)
                 {
-                    if (_instance == null)
-                    {
-                        _instance = new MqttService();
-                    }
-                    return _instance;
+                    throw new InvalidOperationException("MqttService must be initialized before use. Call InitializeInstance first.");
                 }
+                return _instance;
             }
         }
+
 
         public string CurrentStatus { get; private set; } = "Initializing...";
         public bool IsConnected { get; private set; } = false;
@@ -133,6 +136,75 @@ namespace PC2MQTT
                 await _mqttClient.EnqueueAsync(currentMessage);
             }
         }
+        public static MqttService InitializeInstance(AppSettings settings)
+        {
+            lock (_lock)
+            {
+                if (_instance == null)
+                {
+                    _instance = new MqttService(settings);
+                }
+                // Consider else block to update settings if _instance already exists
+            }
+            return _instance;
+        }
+
+        public async Task SubscribeToSwitchCommandsAsync()
+        {
+            var deviceId = _settings.SensorPrefix;
+            List<string> switchNames = new List<string> { "shutdown", "reboot", "standby", "hibernate" };
+
+            foreach (var switchName in switchNames)
+            {
+                var topic = $"homeassistant/switch/{deviceId}/{switchName}/set";
+                await SubscribeAsync(topic);
+            }
+        }
+        private async Task HandleReceivedMessageAsync(MqttApplicationMessageReceivedEventArgs e)
+        {
+            var topic = e.ApplicationMessage.Topic;
+            var payload = Encoding.UTF8.GetString(e.ApplicationMessage.Payload);
+            var topicParts = topic.Split('/');
+            if (topicParts.Length < 2)
+            {
+                Log.Warning($"Invalid topic format: {topic}");
+                return;
+            }
+
+            var command = topicParts[^2].ToLower(); // Using ^2 to get the second to last element
+            Log.Information($"Received control command: {command}, payload: {payload}");
+
+            // Example: Handling a shutdown command
+         
+
+            // Handle different actions
+            switch (command.ToLower())
+            {
+                case "shutdown":
+                    // Call your shutdown method here
+                    
+                    _pc_sensors.PerformShutdown();
+                    break;
+                case "reboot":
+                    // Call your reboot method here
+                    _pc_sensors.PerformReboot();
+                    break;
+                case "standby":
+                    // Call your standby method here
+                    _pc_sensors.PerformStandby();
+                    break;
+                case "hibernate":
+                    // Call your hibernate method here
+                    _pc_sensors.PerformHibernate();
+                    break;
+                // Add more cases as needed
+                default:
+                    Log.Warning($"Unknown control command: {command}");
+                    break;
+            }
+
+            // Add similar handling for other commands
+        }
 
         public async Task ReinitializeAsync(AppSettings settings, string clientId)
         {
@@ -149,9 +221,16 @@ namespace PC2MQTT
 
         public async Task SubscribeAsync(string topic, MqttQualityOfServiceLevel qos = MqttQualityOfServiceLevel.AtLeastOnce)
         {
+            if (_mqttClient == null)
+            {
+                Console.WriteLine("MQTT client is not initialized.");
+                return;
+            }
+
             var topicFilter = new MqttTopicFilterBuilder().WithTopic(topic).WithQualityOfServiceLevel(qos).Build();
             await _mqttClient.SubscribeAsync(new MqttTopicFilter[] { topicFilter });
         }
+
 
         public async Task UnsubscribeAsync(params string[] topics)
         {
@@ -160,6 +239,7 @@ namespace PC2MQTT
                 await _mqttClient.UnsubscribeAsync(topics);
             }
         }
+        
 
         #endregion Public Methods
 
@@ -243,7 +323,7 @@ namespace PC2MQTT
             {
                 IsConnected = true;
                 Log.Information("Connected to MQTT broker.");
-
+                await SubscribeToSwitchCommandsAsync();
                 ConnectionStatusChanged?.Invoke("MQTT Status: Connected");
                 // Additional actions upon connection
             };
@@ -271,6 +351,8 @@ namespace PC2MQTT
                 await _mqttClient.EnqueueAsync(message); // Make sure this is the correct method to call for publishing
             }
             Log.Information("MQTT client started.");
+            _mqttClient.ApplicationMessageReceivedAsync += HandleReceivedMessageAsync;
+
         }
 
         #endregion Private Methods

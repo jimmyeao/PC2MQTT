@@ -182,14 +182,33 @@ namespace PC2MQTT
         }
         private async void InitializeMqttService()
         {
-            _mqttService = MqttService.Instance;
+            // Assuming _settings is already initialized here correctly
+            if (_settings == null)
+            {
+                // Log or handle the error as needed
+                Console.WriteLine("Settings must be initialized before initializing MqttService.");
+                return;
+            }
+
+            // Initialize MqttService with settings
+            _mqttService = MqttService.InitializeInstance(_settings);
+            await _mqttService.InitializeAsync(_settings, "uniqueClientId");
+            // Setup event handlers
             _mqttService.ConnectionStatusChanged += MqttManager_ConnectionStatusChanged;
             SetupMqttEventHandlers();
-            MqttService.Instance.InitializeAsync(_settings, "PC2MQTT").GetAwaiter().GetResult();
+
+            // Ensure this method waits for the MQTT service to be fully initialized if needed
             UpdateMqttStatus(_mqttService.CurrentStatus);
-            // _mqttService.Initialize(_settings, "PC2MQTT");
+
+            // After initializing the MqttService, subscribe to switch commands
+            await _mqttService.SubscribeToSwitchCommandsAsync();
+
+            // Other configurations can follow here
+            await PublishConfigurationsAsync();
             await PublishAutoDiscoveryConfigs();
         }
+
+
 
 
         private async Task OnMessageReceivedAsync(MqttApplicationMessageReceivedEventArgs e)
@@ -328,7 +347,65 @@ namespace PC2MQTT
             aboutWindow.Owner = this;
             aboutWindow.ShowDialog();
         }
+        public async Task PublishConfigurationsAsync(bool forcePublish = false)
+        {
+            var deviceId = _settings.SensorPrefix;
+            var deviceInfo = new
+            {
+                identifiers = new[] { deviceId },
+                manufacturer = "Custom",
+                model = "PC Monitor",
+                name = deviceId,
+                sw_version = "1.0"
+            };
 
+            List<string> entityNames = new List<string>
+            {
+                "shutdown", "reboot", "standby", "hibernate"
+            };
+
+            foreach (var entityName in entityNames)
+            {
+                string topic;
+                object payload;
+
+                if (entityName.Contains("shutdown") || entityName.Contains("reboot") || entityName.Contains("standby") || entityName.Contains("hibernate"))
+                {
+                    topic = $"homeassistant/switch/{deviceId}/{entityName}/config";
+                    payload = new
+                    {
+                        name = $"{deviceId}_{entityName}",
+                        unique_id = $"{deviceId}_{entityName}",
+                        device = deviceInfo,
+                        command_topic = $"homeassistant/switch/{deviceId}/{entityName}/set",
+                        state_topic = $"homeassistant/switch/{deviceId}/{entityName}/state",
+                        payload_on = "ON",
+                        payload_off = "OFF"
+                    };
+                }
+                else
+                {
+                    topic = $"homeassistant/sensor/{deviceId}/{entityName}/config";
+                    payload = new
+                    {
+                        name = $"{deviceId}_{entityName}",
+                        unique_id = $"{deviceId}_{entityName}",
+                        device = deviceInfo,
+                        state_topic = $"homeassistant/sensor/{deviceId}/{entityName}/state",
+                        unit_of_measurement = entityName.Contains("usage") ? "%" : "GB",
+                        icon = entityName.Contains("cpu") ? "mdi:cpu-64-bit" : "mdi:memory"
+                    };
+                }
+
+                await _mqttService.PublishAsync(topic, JsonConvert.SerializeObject(payload), MqttQualityOfServiceLevel.AtLeastOnce);
+
+                if (topic.Contains("/switch/"))
+                {
+                    string stateTopic = topic.Replace("/config", "/state");
+                    await _mqttService.PublishAsync(stateTopic, "OFF", MqttQualityOfServiceLevel.AtLeastOnce);
+                }
+            }
+        }
         private void OnTimedEvent(Object source, System.Timers.ElapsedEventArgs e)
         {
             // Initialize local variables to default values
@@ -719,6 +796,8 @@ namespace PC2MQTT
             Dispatcher.Invoke(() => UpdateStatusMenuItems());
             ShowOneTimeNoticeIfNeeded();
         }
+
+
         private void ShowOneTimeNoticeIfNeeded()
         {
             // Check if the one-time notice has already been shown

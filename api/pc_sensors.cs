@@ -10,12 +10,12 @@ using System.Windows.Forms;
 
 namespace PC2MQTT.api
 {
-    internal class pc_sensors
+    public class pc_sensors
     {
         private AppSettings _settings; 
         private List<string> _sensorNames;
         private PCMetrics _pcMetrics;
-        private pc_sensors()
+        public pc_sensors(AppSettings settings)
         {
             _sensorNames = new List<string>
             {
@@ -26,7 +26,8 @@ namespace PC2MQTT.api
                 "free_ram",
                 "used_ram"
             };
-           
+            _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+
         }
          public void PerformShutdown()
         {
