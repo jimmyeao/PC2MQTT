@@ -6,13 +6,13 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:PC2MQTT"
         mc:Ignorable="d"
-        Title="PC2MQTT" Height="580" Width="850"
+        Title="PC2MQTT" Height="605" Width="891"
         xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
         TextElement.Foreground="{DynamicResource MaterialDesign.Brush.Foreground}"
         Background="{DynamicResource MaterialDesign.Brush.Background}"
         TextElement.FontWeight="Regular"
         TextElement.FontSize="12"
-        FontFamily="{materialDesign:MaterialDesignFont}"    
+        FontFamily="{DynamicResource MaterialDesignFont}"
         TextOptions.TextFormattingMode="Ideal"
         TextOptions.TextRenderingMode="Auto">
 

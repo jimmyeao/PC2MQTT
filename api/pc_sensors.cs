@@ -12,10 +12,13 @@ namespace PC2MQTT.api
 {
     public class pc_sensors
     {
-        private AppSettings _settings; 
+        private AppSettings _settings;
         private List<string> _sensorNames;
         private PCMetrics _pcMetrics;
-        public pc_sensors(AppSettings settings)
+        private MqttService _mqttService;
+        private string _deviceId;
+
+        public pc_sensors(AppSettings settings, MqttService mqttService = null, string deviceId = null)
         {
             _sensorNames = new List<string>
             {
@@ -24,66 +27,90 @@ namespace PC2MQTT.api
                 // Add all other sensor names here
                 "total_ram",
                 "free_ram",
-                "used_ram"
+                "used_ram",
+                "power_state"
             };
             _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+            _mqttService = mqttService;
+            _deviceId = deviceId ?? Environment.MachineName;
 
         }
-         public void PerformShutdown()
+
+        private async Task PublishPowerStateAsync(string state)
+        {
+            if (_mqttService != null)
+            {
+                var metrics = PCMetrics.Instance;
+                metrics.PowerState = state;
+                var stateTopic = $"homeassistant/sensor/{_deviceId}/power_state/state";
+                await _mqttService.PublishAsync(stateTopic, state);
+                Log.Information($"Published power state: {state}");
+                // Give MQTT a moment to send the message
+                await Task.Delay(500);
+            }
+        }
+
+        public async void PerformShutdown()
         {
             if (_settings.UseSafeCommands)
             {
                 // Use Dispatcher to ensure the dialog is opened on the UI thread
+                bool confirmed = false;
                 System.Windows.Application.Current.Dispatcher.Invoke(() =>
                 {
                     ConfirmationDialog dialog = new ConfirmationDialog("Shutdown Confirmation", "Are you sure you want to Shutdown the computer?");
-                    if (dialog.ShowDialog() == true)
-                    {
-                        Log.Information("User confirmed the shutdown command.");
-                        Process.Start("shutdown", "/s /t 0");
-
-                    }
-                    else
-                    {
-                        Log.Information("User cancelled the standby command.");
-                    }
+                    confirmed = dialog.ShowDialog() == true;
                 });
+
+                if (confirmed)
+                {
+                    Log.Information("User confirmed the shutdown command.");
+                    await PublishPowerStateAsync("off");
+                    Process.Start("shutdown", "/s /t 0");
+                }
+                else
+                {
+                    Log.Information("User cancelled the shutdown command.");
+                }
             }
             else
             {
                 // System-specific command to shutdown
+                await PublishPowerStateAsync("off");
                 Process.Start("shutdown", "/s /t 0");
             }
 
         }
 
-        public void PerformStandby()
+        public async void PerformStandby()
         {
             // System-specific command to standby
             // Windows does not have a direct standby command, typically handled by hardware
             if (_settings.UseSafeCommands)
             {
                 // Use Dispatcher to ensure the dialog is opened on the UI thread
+                bool confirmed = false;
                 System.Windows.Application.Current.Dispatcher.Invoke(() =>
                 {
                     ConfirmationDialog dialog = new ConfirmationDialog("Standby Confirmation", "Are you sure you want to put the computer to standby?");
-                    if (dialog.ShowDialog() == true)
-                    {
-                        Log.Information("User confirmed the standby command.");
-                        System.Windows.Forms.Application.SetSuspendState(PowerState.Suspend, true, true);
-                        // Proceed with the standby
-                        // Note: There's no direct command for standby in Windows, handled by hardware
-                    }
-                    else
-                    {
-                        Log.Information("User cancelled the standby command.");
-
-                    }
+                    confirmed = dialog.ShowDialog() == true;
                 });
+
+                if (confirmed)
+                {
+                    Log.Information("User confirmed the standby command.");
+                    await PublishPowerStateAsync("sleep");
+                    System.Windows.Forms.Application.SetSuspendState(PowerState.Suspend, true, true);
+                }
+                else
+                {
+                    Log.Information("User cancelled the standby command.");
+                }
             }
             else
             {
                 // Directly enter standby without confirmation, if possible
+                await PublishPowerStateAsync("sleep");
                 System.Windows.Forms.Application.SetSuspendState(PowerState.Suspend, true, true);
             }
         }
@@ -114,30 +141,34 @@ namespace PC2MQTT.api
             }
         }
 
-        public void PerformHibernate()
+        public async void PerformHibernate()
         {
             // System-specific command to hibernate
             if (_settings.UseSafeCommands)
             {
                 // Use Dispatcher to ensure the dialog is opened on the UI thread
+                bool confirmed = false;
                 System.Windows.Application.Current.Dispatcher.Invoke(() =>
                 {
-                    ConfirmationDialog dialog = new ConfirmationDialog("Standby Confirmation", "Are you sure you want to hibernate the computer?");
-                    if (dialog.ShowDialog() == true)
-                    {
-                        Log.Information("User confirmed the hibernate command.");
-                        // Proceed with the standby
-                        Process.Start("shutdown", "/h");
-                    }
-                    else
-                    {
-                        Log.Information("User cancelled the hibernate command.");
-                    }
+                    ConfirmationDialog dialog = new ConfirmationDialog("Hibernate Confirmation", "Are you sure you want to hibernate the computer?");
+                    confirmed = dialog.ShowDialog() == true;
                 });
+
+                if (confirmed)
+                {
+                    Log.Information("User confirmed the hibernate command.");
+                    await PublishPowerStateAsync("hibernate");
+                    Process.Start("shutdown", "/h");
+                }
+                else
+                {
+                    Log.Information("User cancelled the hibernate command.");
+                }
             }
             else
             {
-                // Directly enter standby without confirmation, if possible
+                // Directly enter hibernate without confirmation
+                await PublishPowerStateAsync("hibernate");
                 Process.Start("shutdown", "/h");
             }
         }

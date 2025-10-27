@@ -11,7 +11,7 @@
         Background="{DynamicResource MaterialDesign.Brush.Background}"
         TextElement.FontWeight="Regular"
         TextElement.FontSize="12"
-        FontFamily="{materialDesign:MaterialDesignFont}"    
+        FontFamily="{DynamicResource MaterialDesignFont}"
         TextOptions.TextFormattingMode="Ideal"
         TextOptions.TextRenderingMode="Auto">
     <Grid>

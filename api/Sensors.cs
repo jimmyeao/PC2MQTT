@@ -16,6 +16,7 @@ namespace PC2MQTT.api
         public double TotalRam { get; set; }
         public double FreeRam { get; set; }
         public double UsedRam { get; set; }
+        public string PowerState { get; set; } = "on";
 
         // Singleton instance
         private static PCMetrics _instance;

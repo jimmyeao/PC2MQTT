@@ -1,9 +1,7 @@
 ﻿using MQTTnet;
-using MQTTnet.Client;
-using MQTTnet.Extensions.ManagedClient;
-using MQTTnet.Packets;
 using MQTTnet.Protocol;
 using System;
+using System.Buffers;
 using Serilog;
 using System.Text;
 using System.Threading.Tasks;
@@ -23,8 +21,10 @@ namespace PC2MQTT
         private readonly AppSettings _settings;
         private bool _isInitialized = false;
         private Queue<MqttApplicationMessage> _messageQueue = new Queue<MqttApplicationMessage>();
-        private IManagedMqttClient _mqttClient;
+        private MqttClient _mqttClient;
         private pc_sensors _pc_sensors;
+        private System.Threading.Timer _reconnectTimer;
+        private bool _shouldReconnect = true;
         #endregion Private Fields
 
         #region Private Constructors
@@ -33,8 +33,9 @@ namespace PC2MQTT
         {
             //InitializeMqttClient().GetAwaiter().GetResult();
             _settings = settings ?? throw new ArgumentNullException(nameof(settings));
-            _pc_sensors = new pc_sensors(_settings);
-            
+            // Note: pc_sensors will be initialized after MQTT service is ready
+            _pc_sensors = null;
+
             Log.Information("MQTT client initialized.");
         }
 
@@ -78,7 +79,8 @@ namespace PC2MQTT
             {
                 try
                 {
-                    await _mqttClient.StopAsync();
+                    _shouldReconnect = false; // Prevent auto-reconnection
+                    await _mqttClient.DisconnectAsync();
                 }
                 catch (Exception ex)
                 {
@@ -86,8 +88,6 @@ namespace PC2MQTT
                 }
                 finally
                 {
-                    //_mqttClient.Dispose();
-                    //_mqttClient = null;
                     ConnectionStatusChanged?.Invoke($"MQTT Status: Disconnected");
                 }
             }
@@ -100,17 +100,23 @@ namespace PC2MQTT
                 // Perform your initialization here using settings and clientId. For example,
                 // setting up the MQTT client.
 
+                CurrentStatus = "Initializing...";
                 ConnectionStatusChanged?.Invoke($"MQTT Status: Initializing");
                 await InitializeMqttClient(settings, clientId);
+
+                // Initialize pc_sensors with MqttService reference
+                var deviceId = string.IsNullOrEmpty(settings.SensorPrefix) ? System.Environment.MachineName : settings.SensorPrefix;
+                _pc_sensors = new pc_sensors(settings, this, deviceId);
+
                 _isInitialized = true;
             }
         }
 
         public async Task PublishAsync(string topic, string payload, MqttQualityOfServiceLevel qos = MqttQualityOfServiceLevel.AtLeastOnce)
         {
-            if (_mqttClient == null)
+            if (_mqttClient == null || !IsConnected)
             {
-                // Client not initialized, queue the message
+                // Client not initialized or not connected, queue the message
                 var message = new MqttApplicationMessageBuilder()
                     .WithTopic(topic)
                     .WithPayload(payload)
@@ -120,12 +126,13 @@ namespace PC2MQTT
             }
             else
             {
-                // Client initialized, publish immediately or dequeue the queued messages
-                foreach (var message in _messageQueue)
+                // Client initialized and connected, publish immediately
+                // First publish any queued messages
+                while (_messageQueue.Any())
                 {
-                    await _mqttClient.EnqueueAsync(message);
+                    var queuedMessage = _messageQueue.Dequeue();
+                    await _mqttClient.PublishAsync(queuedMessage);
                 }
-                _messageQueue.Clear(); // Clear the queue after publishing
 
                 // Publish the current message
                 var currentMessage = new MqttApplicationMessageBuilder()
@@ -133,7 +140,7 @@ namespace PC2MQTT
                     .WithPayload(payload)
                     .WithQualityOfServiceLevel(qos)
                     .Build();
-                await _mqttClient.EnqueueAsync(currentMessage);
+                await _mqttClient.PublishAsync(currentMessage);
             }
         }
         public static MqttService InitializeInstance(AppSettings settings)
@@ -163,7 +170,7 @@ namespace PC2MQTT
         private async Task HandleReceivedMessageAsync(MqttApplicationMessageReceivedEventArgs e)
         {
             var topic = e.ApplicationMessage.Topic;
-            var payload = Encoding.UTF8.GetString(e.ApplicationMessage.Payload);
+            var payload = Encoding.UTF8.GetString(e.ApplicationMessage.Payload.ToArray());
             var topicParts = topic.Split('/');
             if (topicParts.Length < 2)
             {
@@ -210,13 +217,12 @@ namespace PC2MQTT
         {
             await DisconnectAsync();
 
-            // Clear current instance and reinitialize
-            lock (_lock)
-            {
-                _instance = null;
-            }
+            // Reset initialization flag to allow reinitialization
+            _isInitialized = false;
+
+            CurrentStatus = "Reconnecting...";
             ConnectionStatusChanged?.Invoke($"MQTT Status: Reconnecting");
-            await Instance.InitializeAsync(settings, clientId);
+            await InitializeAsync(settings, clientId);
         }
 
         public async Task SubscribeAsync(string topic, MqttQualityOfServiceLevel qos = MqttQualityOfServiceLevel.AtLeastOnce)
@@ -227,8 +233,10 @@ namespace PC2MQTT
                 return;
             }
 
-            var topicFilter = new MqttTopicFilterBuilder().WithTopic(topic).WithQualityOfServiceLevel(qos).Build();
-            await _mqttClient.SubscribeAsync(new MqttTopicFilter[] { topicFilter });
+            var subscribeOptions = new MqttClientSubscribeOptionsBuilder()
+                .WithTopicFilter(f => f.WithTopic(topic).WithQualityOfServiceLevel(qos))
+                .Build();
+            await _mqttClient.SubscribeAsync(subscribeOptions);
         }
 
 
@@ -236,7 +244,13 @@ namespace PC2MQTT
         {
             if (_mqttClient != null && topics != null)
             {
-                await _mqttClient.UnsubscribeAsync(topics);
+                var builder = new MqttClientUnsubscribeOptionsBuilder();
+                foreach (var topic in topics)
+                {
+                    builder.WithTopicFilter(topic);
+                }
+                var unsubscribeOptions = builder.Build();
+                await _mqttClient.UnsubscribeAsync(unsubscribeOptions);
             }
         }
         
@@ -250,8 +264,8 @@ namespace PC2MQTT
             if (_isInitialized) return;
 
             _isInitialized = true;
-            var mqttFactory = new MqttFactory();
-            _mqttClient = mqttFactory.CreateManagedMqttClient();
+            var mqttFactory = new MqttClientFactory();
+            _mqttClient = mqttFactory.CreateMqttClient() as MqttClient;
 
             var builder = new MqttClientOptionsBuilder()
                 .WithClientId(clientId)
@@ -268,7 +282,7 @@ namespace PC2MQTT
             if (settings.UseWebsockets)
             {
                 var webSocketUri = settings.UseTLS ? $"wss://{settings.MqttAddress}:{port}" : $"ws://{settings.MqttAddress}:{port}";
-                builder.WithWebSocketServer(webSocketUri);
+                builder.WithWebSocketServer(o => o.WithUri(webSocketUri));
             }
             else
             {
@@ -278,80 +292,87 @@ namespace PC2MQTT
             // Configure TLS if needed
             if (settings.UseTLS)
             {
-                // Create TLS parameters
-                var tlsParameters = new MqttClientOptionsBuilderTlsParameters
+                builder.WithTlsOptions(o =>
                 {
-                    AllowUntrustedCertificates = settings.IgnoreCertificateErrors,
-                    IgnoreCertificateChainErrors = settings.IgnoreCertificateErrors,
-                    IgnoreCertificateRevocationErrors = settings.IgnoreCertificateErrors,
-                    UseTls = true
-                };
+                    o.WithAllowUntrustedCertificates(settings.IgnoreCertificateErrors);
+                    o.WithIgnoreCertificateChainErrors(settings.IgnoreCertificateErrors);
+                    o.WithIgnoreCertificateRevocationErrors(settings.IgnoreCertificateErrors);
 
-                // If you need to validate the server certificate, you can set the CertificateValidationHandler.
-                // Note: Be cautious with bypassing certificate checks in production code!!
-                if (!settings.IgnoreCertificateErrors)
-                {
-                    tlsParameters.CertificateValidationHandler = context =>
+                    // If you need to validate the server certificate, you can set the CertificateValidationHandler.
+                    // Note: Be cautious with bypassing certificate checks in production code!!
+                    if (!settings.IgnoreCertificateErrors)
                     {
-                        // Log the SSL policy errors
-                        Log.Debug($"SSL policy errors: {context.SslPolicyErrors}");
+                        o.WithCertificateValidationHandler(context =>
+                        {
+                            // Log the SSL policy errors
+                            Log.Debug($"SSL policy errors: {context.SslPolicyErrors}");
 
-                        // Return true if there are no SSL policy errors, or if ignoring certificate
-                        // errors is allowed
-                        return context.SslPolicyErrors == System.Net.Security.SslPolicyErrors.None;
-                    };
-                }
-
-                builder.WithTls(tlsParameters);
+                            // Return true if there are no SSL policy errors
+                            return context.SslPolicyErrors == System.Net.Security.SslPolicyErrors.None;
+                        });
+                    }
+                });
             }
             var options = builder.Build();
-            var managedOptions = new ManagedMqttClientOptionsBuilder()
-            .WithAutoReconnectDelay(TimeSpan.FromSeconds(5))
-            .WithClientOptions(options)
-            .Build();
 
+            // Setup event handlers
             _mqttClient.ApplicationMessageReceivedAsync += async e =>
             {
                 if (MessageReceived != null)
                 {
                     await MessageReceived.Invoke(e);
-                    Log.Information($"Message received on topic {e.ApplicationMessage.Topic}: {Encoding.UTF8.GetString(e.ApplicationMessage.Payload)}");
+                    Log.Information($"Message received on topic {e.ApplicationMessage.Topic}: {Encoding.UTF8.GetString(e.ApplicationMessage.Payload.ToArray())}");
                 }
             };
 
             _mqttClient.ConnectedAsync += async e =>
             {
                 IsConnected = true;
+                CurrentStatus = "Connected";
                 Log.Information("Connected to MQTT broker.");
                 await SubscribeToSwitchCommandsAsync();
                 ConnectionStatusChanged?.Invoke("MQTT Status: Connected");
-                // Additional actions upon connection
+
+                // Publish queued messages
+                while (_messageQueue.Any())
+                {
+                    var message = _messageQueue.Dequeue();
+                    await _mqttClient.PublishAsync(message);
+                }
             };
 
             _mqttClient.DisconnectedAsync += async e =>
             {
                 IsConnected = false;
+                CurrentStatus = "Disconnected";
                 Log.Information("Disconnected from MQTT broker.");
-
                 ConnectionStatusChanged?.Invoke("MQTT Status: Disconnected");
-                // Additional actions upon disconnection
-            };
-            _mqttClient.ConnectingFailedAsync += async e =>
-            {
-                var errorMessage = $"Failed to connect: {e.Exception.Message}";
-                Log.Information(errorMessage);
 
-                ConnectionStatusChanged?.Invoke(errorMessage);
+                // Implement auto-reconnect
+                if (_shouldReconnect && !e.ClientWasConnected)
+                {
+                    CurrentStatus = "Reconnecting...";
+                    ConnectionStatusChanged?.Invoke("MQTT Status: Reconnecting...");
+                    Log.Information("Attempting to reconnect in 5 seconds...");
+                    await Task.Delay(5000);
+                    try
+                    {
+                        await _mqttClient.ConnectAsync(options);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error(ex, "Reconnection failed");
+                        CurrentStatus = "Connection Failed";
+                        ConnectionStatusChanged?.Invoke("MQTT Status: Connection Failed");
+                    }
+                }
             };
 
-            await _mqttClient.StartAsync(managedOptions);
-            while (_messageQueue.Any())
-            {
-                var message = _messageQueue.Dequeue();
-                await _mqttClient.EnqueueAsync(message); // Make sure this is the correct method to call for publishing
-            }
-            Log.Information("MQTT client started.");
             _mqttClient.ApplicationMessageReceivedAsync += HandleReceivedMessageAsync;
+
+            // Connect to MQTT broker
+            await _mqttClient.ConnectAsync(options);
+            Log.Information("MQTT client started.");
 
         }
 

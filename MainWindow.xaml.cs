@@ -3,6 +3,7 @@ using MQTTnet.Protocol;
 using Newtonsoft.Json;
 using Serilog;
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using Hardcodet.Wpf.TaskbarNotification;
 using System.ComponentModel;
@@ -16,8 +17,8 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Forms;
 using Microsoft.VisualBasic.Devices;
-using MQTTnet.Client;
 using System.Text;
+using MQTTnet;
 
 
 namespace PC2MQTT
@@ -178,6 +179,7 @@ namespace PC2MQTT
             Dispatcher.Invoke(() =>
             {
                 MQTTConnectionStatus.Text = status; // Ensure MQTTConnectionStatus is the correct UI element's name
+                _viewModel.MqttStatus = status; // Also update the ViewModel
             });
         }
         private async void InitializeMqttService()
@@ -192,10 +194,12 @@ namespace PC2MQTT
 
             // Initialize MqttService with settings
             _mqttService = MqttService.InitializeInstance(_settings);
-            await _mqttService.InitializeAsync(_settings, "uniqueClientId");
-            // Setup event handlers
+
+            // Setup event handlers BEFORE initializing (so we don't miss the Connected event)
             _mqttService.ConnectionStatusChanged += MqttManager_ConnectionStatusChanged;
             SetupMqttEventHandlers();
+
+            await _mqttService.InitializeAsync(_settings, "uniqueClientId");
 
             // Ensure this method waits for the MQTT service to be fully initialized if needed
             UpdateMqttStatus(_mqttService.CurrentStatus);
@@ -214,7 +218,7 @@ namespace PC2MQTT
         private async Task OnMessageReceivedAsync(MqttApplicationMessageReceivedEventArgs e)
         {
             // Process received message
-            var message = Encoding.UTF8.GetString(e.ApplicationMessage.Payload);
+            var message = Encoding.UTF8.GetString(e.ApplicationMessage.Payload.ToArray());
             Console.WriteLine($"Message received on topic {e.ApplicationMessage.Topic}: {message}");
             // Implement further processing as needed
         }
@@ -614,7 +618,8 @@ namespace PC2MQTT
         // Add other sensors here, e.g., "total_ram", "free_ram", "used_ram" with their respective units and icons
         {"total_ram", ("GB", "mdi:memory")},
         {"free_ram", ("GB", "mdi:memory")},
-        {"used_ram", ("GB", "mdi:memory")}
+        {"used_ram", ("GB", "mdi:memory")},
+        {"power_state", ("", "mdi:power")}
     };
 
             foreach (var sensor in sensors)
@@ -654,16 +659,18 @@ namespace PC2MQTT
                 // Add other metrics here as needed
                 {"total_ram", _pcMetrics.TotalRam},
                 {"free_ram", _pcMetrics.FreeRam},
-                {"used_ram", _pcMetrics.UsedRam}
+                {"used_ram", _pcMetrics.UsedRam},
+                {"power_state", _pcMetrics.PowerState}
             };
 
             foreach (var metric in metrics)
             {
                 var stateTopic = $"{baseTopic}{metric.Key}/state";
-                // Format the value as a string with two decimal places
-                var payload = string.Format("{0:F2}", metric.Value);
+                // Format the value as a string with two decimal places for numeric values
+                // For power_state (string), just convert to string
+                var payload = metric.Value is string ? metric.Value.ToString() : string.Format("{0:F2}", metric.Value);
                 await _mqttService.PublishAsync(stateTopic, payload);
-                
+
             }
         }
 
